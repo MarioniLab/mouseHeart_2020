@@ -1,0 +1,127 @@
+---
+title: "<span style='font-size: 28px'>Single-cell RNAseq of mouse heart development</style>"
+date: '`r format(Sys.time(), "%d %B, %Y")`'
+output:
+  html_document:
+    keep_md: true
+    fig_width: 5
+    fig_height: 5
+    fig_caption: yes
+    code_folding: hide
+    toc: true
+    toc_float: 
+      collapsed: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(scran)
+library(scater)
+library(batchelor)
+library(RColorBrewer)
+
+dir <- "/Users/ibarra01/OneDrive - CRUK Cambridge Institute/github/mouseHeart_earlyDev_atlas/"
+
+palette(brewer.pal(n=8, "Set3")[-2])
+```
+
+
+### Batch correction
+
+We begin with the good-quality, normalised data produced in the `01_QC_and_normalisation.Rmd` script.
+
+```{r loadData}
+## sce object
+sce <- readRDS(paste0(dir, "data/sce_goodQual.NORM.Rds"))
+```
+
+Now we need to check for batch effects. For this, we begin by visualising the data in low dimensional space, with UMAP.
+
+```{r umap}
+set.seed(497)
+sce <- runUMAP(sce)
+
+umap <- as.data.frame(reducedDim(sce, "UMAP"))
+colnames(umap) <- c("x", "y")
+write.table(umap, paste0(dir,"results/umapCoords.tab"), quote=FALSE, sep="\t")
+
+## colour by batch
+umap$batch <- sce$batch
+## randomise order per batch
+tmp <- umap[sample(row.names(umap), nrow(umap), replace = FALSE),]
+plot(tmp$x, tmp$y, pch=16, cex=0.75, col=tmp$batch, xlab="tSNE-dim1", ylab="tSNE-dim2", bty="l")
+legend("topright", legend = levels(tmp$batch), col=1:7, pch=16, cex=0.85)
+```
+
+There is strong segregation of the cells based on their batch of origin, especially for batch_7. Thus, we need to correct for this effect before proceeding.
+
+----
+
+To correct the batch effects we use the method proposed by Haghverdi et al. (*Nature Biotechnology*, 2018), based on mutual nearest neighbours (MNNs), but use the quicker implementation in `fastMNN`. 
+
+We restrict the calculations to highly varaible genes, defined using the method proposed by Brennecke et al. (*Nature Meethods*, 2015). We retain the 2000 genes with largest variation, but remove any mitochondrial and sexually dimorphic genes.
+
+```{r hvgs}
+hvgs <- modelGeneCV2(sce, block=sce$batch)
+# plot(hvgs$mean, hvgs$total, log="xy", col=ifelse(hvgs$FDR<0.05, 'red', 'black'))
+# points(hvgs$mean, hvgs$trend, col="blue", pch=16, cex=0.5)
+
+hvgs <- getTopHVGs(hvgs, var.field="ratio", n=2000)
+
+## we remove mitochondrial and sexually dimorphic genes from the list of HVGs
+remove <- rowData(sce)[rowData(sce)$chr %in% c("Y", "MT"),]
+remove <- rbind(remove, rowData(sce)[rowData(sce)$gene=='Xist',])
+
+hvgs <- setdiff(hvgs, row.names(remove))
+write.table(hvgs, file=paste0(dir, "results/HVGs_minMean1_FDR0.05.tsv"), quote = FALSE, col.names = FALSE, row.names = FALSE)
+```
+
+For batch correction, the order of the batches is important; we should use as *reference* the most diverse batch, to ensure cells in other batches are able to find their MNNs. We use the number of different stages per batch as a proxy for diversity.
+
+```{r mnnCorrect}
+## The order of the batches alters the final result. The batch with greatest diversity
+## should be used as reference (first) to maximise the chances of finding MNNs. 
+## Assuming that batches with more stages have more diversity...
+# table(sce$batch, sce$stage)
+#          -1   0   1   2   3 LHT
+# batch_1   0   0   0   0   0  40
+# batch_2   0   0   0 159   0 133
+# batch_3   0 173 117   0   0   0
+# batch_4   0   0  71 262 320   0
+# batch_5   0   0 328 227 124   0
+# batch_6   0   0 313 302   0   0
+# batch_7 227 309   0   0   0   0
+
+## specifiy which cells corrspond to which batch; levels indicate the order for merging
+batch <- factor(sce$batch, levels=paste0("batch_", c(5,4,6,3,2,7,1)))
+sce.corr <- fastMNN(sce, batch=batch, subset.row = hvgs, correct.all = TRUE)
+saveRDS(sce.corr, paste0(dir, "data/sce.goodQual.NORM.batchCorrected.Rds"))
+
+dataCorr <- assay(sce.corr, "reconstructed")
+saveRDS(dataCorr, file = paste0(dir, "data/heartData_unbiased.goodQual.NORM.batchCorrected.Rds"))
+```
+
+Finally, we visualise the corrected data.
+
+```{r umap_corrected}
+## visualise corrected data, which is already cosine normalised
+set.seed(964)
+sce.corr <- runUMAP(sce.corr, subset_row = hvgs, exprs_values = "reconstructed")
+
+umap <- as.data.frame(reducedDim(sce.corr, "UMAP"))
+colnames(umap) <- c("x", "y")
+# write.table(umap, paste0(dir,"results/umapCoords_corrected.tab"), quote=FALSE, sep="\t")
+
+## colour by batch
+umap$batch <- sce$batch
+## randomise order per batch
+tmp <- umap[sample(row.names(umap), nrow(umap), replace = FALSE),]
+plot(tmp$x, tmp$y, pch=16, cex=0.75, col=tmp$batch, xlab="UMAP - dim1", ylab="UMAP - dim2", bty="l")
+legend("topleft", legend = levels(tmp$batch), col=1:7, pch=16, cex=0.85)
+```
+
+Cells from all batches are now well mixed and the clusters should reflect different biological populations.
+
+```{r info}
+sessionInfo()
+```
