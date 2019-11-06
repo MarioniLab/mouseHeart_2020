@@ -1,5 +1,5 @@
 ---
-title: "Single-cell RNA-seq of mouse early heart development"
+title: "<span style='font-size: 28px'>Single-cell RNAseq of mouse heart development</style>"
 date: '`r format(Sys.time(), "%d %B, %Y")`'
 output:
   html_document:
@@ -24,7 +24,7 @@ library(RColorBrewer)
 dir <- "/Users/ibarra01/OneDrive - CRUK Cambridge Institute/github/mouseHeart_earlyDev_atlas/"
 ```
 
-## QC and normalisation
+### QC and normalisation
 
 We have generated single-cell RNA-seq data from *unbiased* sampling of the developing heart in mouse embryos. the sampling covers the earliest stages of heart development, when the cardiac crescent becomes evident, up to the linear heart tube (LHT) stage. Embryos were staged depending on their cardiac crescent morphology and classified as stages 0 to 3, or LHT, as defined in Tyser et al., eLife, 2016. An additional sample was collected just before the left and right portions of the prospective cardiac crescent fuse (stage -1). All data were collected across seven different batches.
 
@@ -47,6 +47,7 @@ data <- readRDS(paste0(dir, "data/heartData_unbiased.RAW.Rds"))
 ## sample metadata
 meta <- read.table(paste0(dir, "data/SupplementaryTable1.tab"), header = TRUE, sep="\t", stringsAsFactors = FALSE)
 stopifnot(identical(colnames(data), meta$cell))
+meta$batch <- as.factor(paste0("batch_", meta$batch)) ## make 'batch' categorical
 
 ## gene information (from Ensembl version 87)
 ann <- read.table(paste0(dir, "data/Mus_musculus.GRCm38.87.tsv"), sep="\t", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
@@ -59,7 +60,7 @@ Cells from different stages were collected across seven different batches; all b
 table(batch=meta$batch, stage=meta$stage)
 ```
 
-### Quality control
+#### Quality control
 
 To assess the quality of the data, we use library size, general mapping statistics such as proportion of reads in mitochondrial genes and spike-ins, and the total number of genes detected.
 
@@ -132,7 +133,7 @@ Batch 2 is the one affected the most, loosing more than half of its cells; but t
 table(batch=meta$batch, stage=meta$stage)
 ```
 
-### Normalisation
+#### Normalisation
 
 The next thing we need before analysing this clean, high-quality dataset, is to normalise the counts to account for differences in sequencing depth and other composition biases.
 
@@ -153,26 +154,24 @@ stopifnot(identical(row.names(m), colnames(data)))
 ann <- ann[genes,]
 stopifnot(identical(row.names(ann), row.names(data[genes,])))
 # need info for spikes
-# spikes <- data.frame(gene=spikes, chr="ERCC", start=1, end=1, strand=1, row.names = spikes)
-# ann <- rbind(ann, spikes)
-# stopifnot(identical(row.names(ann), row.names(data)))
+tmp <- data.frame(gene=spikes, chr=paste0("ERCC",1:length(spikes)), start=1, end=2, strand=1, row.names = spikes)
+ann <- rbind(ann, tmp)
+stopifnot(identical(row.names(ann), row.names(data)))
 
 ## sce object
-sce <- SingleCellExperiment(assays = list(counts=as.matrix(data[genes,])), colData = m, rowData = ann)
-
+sce <- SingleCellExperiment(assays = list(counts=as.matrix(data)), colData = m, rowData = ann[,1:2])
 ## specify spike ins
-# is.spike <- grepl("^ERCC", rownames(sce))
-# isSpike(sce, "ERCC") <- is.spike
+is.spike <- grepl("^ERCC-", rownames(sce))
+sce <- splitAltExps(sce, ifelse(is.spike, "ERCC", "gene"))
 
 ## normalisation
-# plot(density(log10(rowMeans(data[genes,]))), bty="l", main="")
+# plot(density(log10(rowMeans(counts(sce)))), bty="l", main="")
 # abline(v=log10(1), lty=2)
 ## the default filter of mean>=1 is appropriate
 
 ## pre-cluster the data to protect the size factor estimation from too many DEGs
 set.seed(0)
 clusters  <- quickCluster(sce, min.size = 100, method = "igraph")
-saveRDS(clusters, file=paste0(dir, "data/quickCluster.Rds"))
 
 ## estimate size factors
 sce  <- computeSumFactors(sce, cluster = clusters, min.mean = 1)
@@ -182,18 +181,15 @@ write.table(sf, file=paste0(dir, "data/sizeFactors_unbiasedDataset_minMean1.tsv"
 
 plot(sf, colSums(counts(sce))/1e6, pch=16, xlab="size factors", ylab="library size (millions)", bty="l")
 abline(lm((colSums(counts(sce))/1e6)~sf))
-
-## spike-ins have their own normalisation factors, following scran's method.
-# sce <- computeSpikeFactors(sce, type="ERCC", general.use = FALSE)
 ```
 
 Finally, we use the size factors to normalise endogenous gene counts.
 
 ```{r normalise}
-sce <- normalize(sce)
+sce <- logNormCounts(sce)
 saveRDS(sce, file=paste0(dir, "data/sce_goodQual.NORM.Rds"))
 
-## endogenouse genes
+## normalised expression estimates
 dataNorm <- logcounts(sce)
 saveRDS(dataNorm, file = paste0(dir, "data/heartData_unbiased.goodQual.NORM.Rds"))
 ```

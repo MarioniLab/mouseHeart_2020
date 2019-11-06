@@ -1,6 +1,6 @@
 ---
-title: "Single-cell RNA-seq of mouse early heart development"
-date: '05 November, 2019'
+title: "<span style='font-size: 28px'>Single-cell RNAseq of mouse heart development</style>"
+date: '06 November, 2019'
 output:
   html_document:
     keep_md: true
@@ -15,7 +15,7 @@ output:
 
 
 
-## QC and normalisation
+### QC and normalisation
 
 We have generated single-cell RNA-seq data from *unbiased* sampling of the developing heart in mouse embryos. the sampling covers the earliest stages of heart development, when the cardiac crescent becomes evident, up to the linear heart tube (LHT) stage. Embryos were staged depending on their cardiac crescent morphology and classified as stages 0 to 3, or LHT, as defined in Tyser et al., eLife, 2016. An additional sample was collected just before the left and right portions of the prospective cardiac crescent fuse (stage -1). All data were collected across seven different batches.
 
@@ -39,6 +39,7 @@ data <- readRDS(paste0(dir, "data/heartData_unbiased.RAW.Rds"))
 ## sample metadata
 meta <- read.table(paste0(dir, "data/SupplementaryTable1.tab"), header = TRUE, sep="\t", stringsAsFactors = FALSE)
 stopifnot(identical(colnames(data), meta$cell))
+meta$batch <- as.factor(paste0("batch_", meta$batch)) ## make 'batch' categorical
 
 ## gene information (from Ensembl version 87)
 ann <- read.table(paste0(dir, "data/Mus_musculus.GRCm38.87.tsv"), sep="\t", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
@@ -53,18 +54,18 @@ table(batch=meta$batch, stage=meta$stage)
 ```
 
 ```
-##      stage
-## batch  -1   0   1   2   3 LHT
-##     1   0   0   0   0   0  40
-##     2   0   0   0 379   0 379
-##     3   0 247 132   0   0   0
-##     4   0   0  87 303 350   0
-##     5   0   0 379 241 136   0
-##     6   0   0 357 398   0   0
-##     7 374 378   0   0   0   0
+##          stage
+## batch      -1   0   1   2   3 LHT
+##   batch_1   0   0   0   0   0  40
+##   batch_2   0   0   0 379   0 379
+##   batch_3   0 247 132   0   0   0
+##   batch_4   0   0  87 303 350   0
+##   batch_5   0   0 379 241 136   0
+##   batch_6   0   0 357 398   0   0
+##   batch_7 374 378   0   0   0   0
 ```
 
-### Quality control
+#### Quality control
 
 To assess the quality of the data, we use library size, general mapping statistics such as proportion of reads in mitochondrial genes and spike-ins, and the total number of genes detected.
 
@@ -144,18 +145,18 @@ table(batch=meta$batch, stage=meta$stage)
 ```
 
 ```
-##      stage
-## batch  -1   0   1   2   3 LHT
-##     1   0   0   0   0   0  40
-##     2   0   0   0 159   0 133
-##     3   0 173 117   0   0   0
-##     4   0   0  71 262 320   0
-##     5   0   0 328 227 124   0
-##     6   0   0 313 302   0   0
-##     7 227 309   0   0   0   0
+##          stage
+## batch      -1   0   1   2   3 LHT
+##   batch_1   0   0   0   0   0  40
+##   batch_2   0   0   0 159   0 133
+##   batch_3   0 173 117   0   0   0
+##   batch_4   0   0  71 262 320   0
+##   batch_5   0   0 328 227 124   0
+##   batch_6   0   0 313 302   0   0
+##   batch_7 227 309   0   0   0   0
 ```
 
-### Normalisation
+#### Normalisation
 
 The next thing we need before analysing this clean, high-quality dataset, is to normalise the counts to account for differences in sequencing depth and other composition biases.
 
@@ -177,26 +178,24 @@ stopifnot(identical(row.names(m), colnames(data)))
 ann <- ann[genes,]
 stopifnot(identical(row.names(ann), row.names(data[genes,])))
 # need info for spikes
-# spikes <- data.frame(gene=spikes, chr="ERCC", start=1, end=1, strand=1, row.names = spikes)
-# ann <- rbind(ann, spikes)
-# stopifnot(identical(row.names(ann), row.names(data)))
+tmp <- data.frame(gene=spikes, chr=paste0("ERCC",1:length(spikes)), start=1, end=2, strand=1, row.names = spikes)
+ann <- rbind(ann, tmp)
+stopifnot(identical(row.names(ann), row.names(data)))
 
 ## sce object
-sce <- SingleCellExperiment(assays = list(counts=as.matrix(data[genes,])), colData = m, rowData = ann)
-
+sce <- SingleCellExperiment(assays = list(counts=as.matrix(data)), colData = m, rowData = ann[,1:2])
 ## specify spike ins
-# is.spike <- grepl("^ERCC", rownames(sce))
-# isSpike(sce, "ERCC") <- is.spike
+is.spike <- grepl("^ERCC-", rownames(sce))
+sce <- splitAltExps(sce, ifelse(is.spike, "ERCC", "gene"))
 
 ## normalisation
-# plot(density(log10(rowMeans(data[genes,]))), bty="l", main="")
+# plot(density(log10(rowMeans(counts(sce)))), bty="l", main="")
 # abline(v=log10(1), lty=2)
 ## the default filter of mean>=1 is appropriate
 
 ## pre-cluster the data to protect the size factor estimation from too many DEGs
 set.seed(0)
 clusters  <- quickCluster(sce, min.size = 100, method = "igraph")
-saveRDS(clusters, file=paste0(dir, "data/quickCluster.Rds"))
 
 ## estimate size factors
 sce  <- computeSumFactors(sce, cluster = clusters, min.mean = 1)
@@ -210,19 +209,14 @@ abline(lm((colSums(counts(sce))/1e6)~sf))
 
 ![](01_QC_and_normalisation_files/figure-html/sizeFactors-1.png)<!-- -->
 
-```r
-## spike-ins have their own normalisation factors, following scran's method.
-# sce <- computeSpikeFactors(sce, type="ERCC", general.use = FALSE)
-```
-
 Finally, we use the size factors to normalise endogenous gene counts.
 
 
 ```r
-sce <- normalize(sce)
+sce <- logNormCounts(sce)
 saveRDS(sce, file=paste0(dir, "data/sce_goodQual.NORM.Rds"))
 
-## endogenouse genes
+## normalised expression estimates
 dataNorm <- logcounts(sce)
 saveRDS(dataNorm, file = paste0(dir, "data/heartData_unbiased.goodQual.NORM.Rds"))
 ```
@@ -251,44 +245,43 @@ sessionInfo()
 ## 
 ## other attached packages:
 ##  [1] RColorBrewer_1.1-2          ggpubr_0.2.3               
-##  [3] magrittr_1.5                scater_1.12.2              
-##  [5] ggplot2_3.2.1               scran_1.12.1               
-##  [7] SingleCellExperiment_1.6.0  SummarizedExperiment_1.14.1
-##  [9] DelayedArray_0.10.0         BiocParallel_1.18.1        
-## [11] matrixStats_0.55.0          Biobase_2.44.0             
-## [13] GenomicRanges_1.36.1        GenomeInfoDb_1.20.0        
-## [15] IRanges_2.18.3              S4Vectors_0.22.1           
-## [17] BiocGenerics_0.30.0        
+##  [3] magrittr_1.5                scater_1.14.1              
+##  [5] ggplot2_3.2.1               scran_1.14.1               
+##  [7] SingleCellExperiment_1.8.0  SummarizedExperiment_1.16.0
+##  [9] DelayedArray_0.12.0         BiocParallel_1.20.0        
+## [11] matrixStats_0.55.0          Biobase_2.46.0             
+## [13] GenomicRanges_1.38.0        GenomeInfoDb_1.22.0        
+## [15] IRanges_2.20.0              S4Vectors_0.24.0           
+## [17] BiocGenerics_0.32.0        
 ## 
 ## loaded via a namespace (and not attached):
 ##  [1] Rcpp_1.0.2               rsvd_1.0.2              
 ##  [3] locfit_1.5-9.1           lattice_0.20-38         
 ##  [5] assertthat_0.2.1         digest_0.6.22           
-##  [7] R6_2.4.0                 dynamicTreeCut_1.63-1   
-##  [9] evaluate_0.14            pillar_1.4.2            
-## [11] zlibbioc_1.30.0          rlang_0.4.1             
-## [13] lazyeval_0.2.2           rstudioapi_0.10         
-## [15] irlba_2.3.3              Matrix_1.2-17           
-## [17] rmarkdown_1.16           labeling_0.3            
-## [19] BiocNeighbors_1.2.0      statmod_1.4.32          
-## [21] stringr_1.4.0            igraph_1.2.4.1          
-## [23] RCurl_1.95-4.12          munsell_0.5.0           
-## [25] vipor_0.4.5              compiler_3.6.1          
-## [27] BiocSingular_1.0.0       xfun_0.10               
-## [29] pkgconfig_2.0.3          ggbeeswarm_0.6.0        
-## [31] htmltools_0.4.0          tidyselect_0.2.5        
-## [33] gridExtra_2.3            tibble_2.1.3            
-## [35] GenomeInfoDbData_1.2.1   edgeR_3.26.8            
-## [37] viridisLite_0.3.0        withr_2.1.2             
-## [39] crayon_1.3.4             dplyr_0.8.3             
-## [41] bitops_1.0-6             grid_3.6.1              
-## [43] gtable_0.3.0             scales_1.0.0            
-## [45] dqrng_0.2.1              stringi_1.4.3           
-## [47] ggsignif_0.6.0           XVector_0.24.0          
-## [49] viridis_0.5.1            limma_3.40.6            
-## [51] DelayedMatrixStats_1.6.1 cowplot_1.0.0           
-## [53] tools_3.6.1              glue_1.3.1              
-## [55] beeswarm_0.2.3           purrr_0.3.3             
-## [57] yaml_2.2.0               colorspace_1.4-1        
-## [59] knitr_1.25
+##  [7] R6_2.4.0                 evaluate_0.14           
+##  [9] pillar_1.4.2             zlibbioc_1.32.0         
+## [11] rlang_0.4.1              lazyeval_0.2.2          
+## [13] rstudioapi_0.10          irlba_2.3.3             
+## [15] Matrix_1.2-17            rmarkdown_1.16          
+## [17] labeling_0.3             BiocNeighbors_1.4.1     
+## [19] statmod_1.4.32           stringr_1.4.0           
+## [21] igraph_1.2.4.1           RCurl_1.95-4.12         
+## [23] munsell_0.5.0            compiler_3.6.1          
+## [25] vipor_0.4.5              BiocSingular_1.2.0      
+## [27] xfun_0.10                pkgconfig_2.0.3         
+## [29] ggbeeswarm_0.6.0         htmltools_0.4.0         
+## [31] tidyselect_0.2.5         gridExtra_2.3           
+## [33] tibble_2.1.3             GenomeInfoDbData_1.2.2  
+## [35] edgeR_3.28.0             viridisLite_0.3.0       
+## [37] withr_2.1.2              crayon_1.3.4            
+## [39] dplyr_0.8.3              bitops_1.0-6            
+## [41] grid_3.6.1               gtable_0.3.0            
+## [43] scales_1.0.0             dqrng_0.2.1             
+## [45] stringi_1.4.3            ggsignif_0.6.0          
+## [47] XVector_0.26.0           viridis_0.5.1           
+## [49] limma_3.42.0             DelayedMatrixStats_1.8.0
+## [51] cowplot_1.0.0            tools_3.6.1             
+## [53] glue_1.3.1               beeswarm_0.2.3          
+## [55] purrr_0.3.3              yaml_2.2.0              
+## [57] colorspace_1.4-1         knitr_1.25
 ```
