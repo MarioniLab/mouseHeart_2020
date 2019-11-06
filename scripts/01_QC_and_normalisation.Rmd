@@ -1,0 +1,204 @@
+---
+title: "Single-cell RNA-seq of mouse early heart development"
+date: '`r format(Sys.time(), "%d %B, %Y")`'
+output:
+  html_document:
+    keep_md: true
+    fig_width: 5
+    fig_height: 5
+    fig_caption: yes
+    code_folding: hide
+    toc: true
+    toc_float: 
+      collapsed: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(scran)
+library(scater)
+library(ggplot2)
+library(ggpubr)
+library(RColorBrewer)
+
+dir <- "/Users/ibarra01/OneDrive - CRUK Cambridge Institute/github/mouseHeart_earlyDev_atlas/"
+```
+
+## QC and normalisation
+
+We have generated single-cell RNA-seq data from *unbiased* sampling of the developing heart in mouse embryos. the sampling covers the earliest stages of heart development, when the cardiac crescent becomes evident, up to the linear heart tube (LHT) stage. Embryos were staged depending on their cardiac crescent morphology and classified as stages 0 to 3, or LHT, as defined in Tyser et al., eLife, 2016. An additional sample was collected just before the left and right portions of the prospective cardiac crescent fuse (stage -1). All data were collected across seven different batches.
+
+Data are from SMART-seq2 protocol, sequenced in an Illumina HiSeq 2500, to generate 125bp paired-end fragments. The first batch is 40 cells, used as a pilot to ensure the protocols for library prep were working properly. Raw data from the pilot can be accessed at ArrayExpress [E-MTAB-7403](https://www.ebi.ac.uk/arrayexpress/...) and from batches 2 to 7 at the European Nucleotide Archive under project [PRJEB14363](https://www.ebi.ac.uk/ena/data/view/PRJEB14363).
+
+Sequencing data were aligned to the mouse reference genome (`mm10` supplemented with ERCC spike-in sequences) with `GSNAP` and the fragments aligned to each gene annotated in `Ensembl v87` were quantified with `HTSeq`. The counts for each cell were compiled into a single count matrix that can be downloaded from: `add gitlab link`. 
+
+Sample metadata is provided as `Supplementary Table 1` with the paper. Download from [here](add_link).
+
+Gene information is available in the `data` folder.
+
+----
+
+First, we load the count data, sample metadata and gene information.
+
+```{r data}
+## count matrix
+data <- readRDS(paste0(dir, "data/heartData_unbiased.RAW.Rds"))
+
+## sample metadata
+meta <- read.table(paste0(dir, "data/SupplementaryTable1.tab"), header = TRUE, sep="\t", stringsAsFactors = FALSE)
+stopifnot(identical(colnames(data), meta$cell))
+
+## gene information (from Ensembl version 87)
+ann <- read.table(paste0(dir, "data/Mus_musculus.GRCm38.87.tsv"), sep="\t", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+colnames(ann) <- c("gene", "chr", "start", "end", "strand")
+```
+
+Cells from different stages were collected across seven different batches; all batches but batch 1 (pilot) contain data from at least two different stages, and all stages but stage -1 are represented in at least two different batches.
+
+```{r batches}
+table(batch=meta$batch, stage=meta$stage)
+```
+
+### Quality control
+
+To assess the quality of the data, we use library size, general mapping statistics such as proportion of reads in mitochondrial genes and spike-ins, and the total number of genes detected.
+
+```{r qc, fig.width=10, fig.height=10, message=FALSE, warning=FALSE}
+## remove the mapping stats from count data
+mapping.stats <- data[49764:49768,]
+data <- data[1:49763,]
+
+## compute general QC metrics
+qc <- data.frame(libSize=colSums(data), 
+                 nGenes=apply(data, 2, function(x) length(which(x>0))),
+                 mit=colSums(data[row.names(ann[ann$chr=="MT",]),]),
+                 ercc=colSums(data[grep("ERCC",row.names(data)),]))
+
+## plot
+plots <- list()
+## total counts in genes + spike-ins
+plots[[1]] <- ggplot(qc, aes(x=as.factor(meta$batch), y=log10(libSize+1))) + geom_violin() + geom_boxplot(width=0.05) + theme_classic() + theme(legend.position="none") + ylab(expression('log'[10]*' library size')) + xlab("batch") + geom_hline(yintercept = log10(50000), lwd=0.25, lty=2, col="grey") + ggtitle("total reads in genes") + theme(plot.title = element_text(face="bold", hjust=0.5))
+
+## genes detected
+plots[[2]] <- ggplot(qc, aes(x=as.factor(meta$batch), y=nGenes)) + geom_violin() + geom_boxplot(width=0.05) + theme_classic() + theme(legend.position="none") + ylab("total genes") + xlab("batch") + geom_hline(yintercept = 6000, lwd=0.25, lty=2, col="grey") + ggtitle("number of genes detected") + theme(plot.title = element_text(face="bold", hjust=0.5))
+
+## mitochondrial %
+plots[[3]] <- ggplot(qc, aes(x=as.factor(meta$batch), y=mit/libSize*100)) + geom_violin() + geom_boxplot(width=0.05) + theme_classic() + theme(legend.position="none") + ylab("% reads in MT genes") + xlab("batch") + geom_hline(yintercept = 15, lwd=0.25, lty=2, col="grey") + ggtitle("% reads in mitochondrial genes") + theme(plot.title = element_text(face="bold", hjust=0.5))
+
+## spike-ins %
+plots[[4]] <- ggplot(qc, aes(x=as.factor(meta$batch), y=ercc/libSize*100)) + geom_violin(scale="width") + geom_boxplot(width=0.05) + theme_classic() + theme(legend.position="none") + ylab("% reads in spike-ins") + xlab("batch") + geom_hline(yintercept = 30, lwd=0.25, lty=2, col="grey") + ggtitle("% reads in ERCC spike-ins") + theme(plot.title = element_text(face="bold", hjust=0.5))
+
+ggarrange(plotlist = plots, ncol = 2, nrow = 2)
+```
+
+The pilot data was sequenced at higher depth, given the small number of samples. Batch 2 -the first of the large-scale collections- is of lower quality than the rest, with smaller libraries and fewer genes detected. Also, the dilution of the ERCC spike-ins was incorrect and they were not detected in this batch.
+
+To pass quality-control, cells need to:
+
+- Have more than 50,000 reads mapped to annotated genes.
+- Have more than 6,000 genes detected.
+- Have less than 15% of their reads assigned to mitochondrial genes.
+- Have less than 30% of reads mapped to ERCC spike-ins.
+
+```{r bad_quality}
+badQual <- which(qc$libSize < 50e3 | qc$mit/(qc$libSize+1)*100 >= 15 | qc$ercc/(qc$libSize+1)*100 >= 30 | qc$nGenes <= 6000)
+# length(badQual) # 1075 (25.72%)
+```
+
+With this criteria, `r length(badQual)` (`r round(length(badQual)/nrow(qc)*100,2)`%) cells fail and are removed from downstream analyses.
+
+```{r good_qual}
+## remove bad quality samples from count matris
+stopifnot(identical(row.names(qc), colnames(data)))
+data <- data[,-badQual]
+data <- data[rowSums(data)>0,] ## remove non-expressed genes
+
+## and from metadata
+stopifnot(identical(row.names(qc), meta$cellID))
+meta <- meta[-badQual,]
+
+stopifnot(identical(colnames(data), meta$cellID))
+
+## save QC stats for future reference
+qc$pass <- ifelse(row.names(qc) %in% colnames(data), 1, 0)
+write.table(qc, file=paste0(dir, "data/QCstats_allCells.tsv"), quote = FALSE, sep="\t")
+```
+
+The clean dataset now consist of `r ncol(data)` cells that collectively express `r nrow(data)` genes.
+
+Batch 2 is the one affected the most, loosing more than half of its cells; but the other batches retain around 85% of the data.
+
+```{r batches_clean}
+table(batch=meta$batch, stage=meta$stage)
+```
+
+### Normalisation
+
+The next thing we need before analysing this clean, high-quality dataset, is to normalise the counts to account for differences in sequencing depth and other composition biases.
+
+We use the method implemented in `scran` to estimate size factors for each cell. Spike-ins are treated separately and normalised by total counts in spike-ins.
+
+```{r sizeFactors, warning=FALSE, message=FALSE}
+## set up SingleCellExperiment object
+genes <- grep("ENSMUSG", row.names(data), value = TRUE) # 37529
+spikes <- grep("ERCC", row.names(data), value = TRUE) # 92
+
+# metadata row.names should be counts col.names
+m <- meta
+row.names(m) <- m$cellID
+m$cellID <- NULL
+stopifnot(identical(row.names(m), colnames(data)))
+
+# add also gene info
+ann <- ann[genes,]
+stopifnot(identical(row.names(ann), row.names(data[genes,])))
+# need info for spikes
+# spikes <- data.frame(gene=spikes, chr="ERCC", start=1, end=1, strand=1, row.names = spikes)
+# ann <- rbind(ann, spikes)
+# stopifnot(identical(row.names(ann), row.names(data)))
+
+## sce object
+sce <- SingleCellExperiment(assays = list(counts=as.matrix(data[genes,])), colData = m, rowData = ann)
+
+## specify spike ins
+# is.spike <- grepl("^ERCC", rownames(sce))
+# isSpike(sce, "ERCC") <- is.spike
+
+## normalisation
+# plot(density(log10(rowMeans(data[genes,]))), bty="l", main="")
+# abline(v=log10(1), lty=2)
+## the default filter of mean>=1 is appropriate
+
+## pre-cluster the data to protect the size factor estimation from too many DEGs
+set.seed(0)
+clusters  <- quickCluster(sce, min.size = 100, method = "igraph")
+saveRDS(clusters, file=paste0(dir, "data/quickCluster.Rds"))
+
+## estimate size factors
+sce  <- computeSumFactors(sce, cluster = clusters, min.mean = 1)
+sf <- sizeFactors(sce)
+names(sf) <- colnames(counts(sce))
+write.table(sf, file=paste0(dir, "data/sizeFactors_unbiasedDataset_minMean1.tsv"), quote = FALSE, sep = "\t")
+
+plot(sf, colSums(counts(sce))/1e6, pch=16, xlab="size factors", ylab="library size (millions)", bty="l")
+abline(lm((colSums(counts(sce))/1e6)~sf))
+
+## spike-ins have their own normalisation factors, following scran's method.
+# sce <- computeSpikeFactors(sce, type="ERCC", general.use = FALSE)
+```
+
+Finally, we use the size factors to normalise endogenous gene counts.
+
+```{r normalise}
+sce <- normalize(sce)
+saveRDS(sce, file=paste0(dir, "data/sce_goodQual.NORM.Rds"))
+
+## endogenouse genes
+dataNorm <- logcounts(sce)
+saveRDS(dataNorm, file = paste0(dir, "data/heartData_unbiased.goodQual.NORM.Rds"))
+```
+
+
+```{r info}
+sessionInfo()
+```
