@@ -18,39 +18,12 @@ knitr::opts_chunk$set(echo = TRUE)
 library(scran)
 library(dynamicTreeCut)
 library(RColorBrewer)
+library(ggplot2)
+library(ggpubr)
 
 dir <- "/Users/ibarra01/OneDrive - CRUK Cambridge Institute/github/mouseHeart_earlyDev_atlas/"
 
 palette(brewer.pal(n=12, "Set3"))
-```
-
-```{r functions}
-## plot expression on t-SNE
-bluefunc <- colorRampPalette(c("lightgrey", "dodgerblue4"))
-plotGeneOnTSNE <- function(gene, tsne, clusters) {
-  id <- row.names(ann[ann$gene == gene,])
-  df <- data.frame(x = tsne$x, y = tsne$y, exp = log2(dataNorm[id,row.names(tsne)]+1) )
-  df <- df[order(df$exp,decreasing = FALSE),]
-  
-  par(mfrow=c(1,2),mar=c(8,4,8,4))
-  plot(df$x, df$y, pch=16, cex=0.75, xlab="", ylab="", main=gene, col=bluefunc(10)[findInterval(df$exp, seq(min(df$exp), max(df$exp), (max(df$exp)-min(df$exp))/10))], axes=F)
-  box(bty="l")
-  
-  xl <- min(df$x)+abs(min(df$x)/5); xr <- max(df$x)-max(df$x)/5; 
-  yt <- min(df$y)-abs(min(df$y)/5); yb <- yt-((max(df$y)-min(df$y))/35); 
-  
-  rect(head(seq(xl,xr,(xr-xl)/10),-1), yb, tail(seq(xl,xr,(xr-xl)/10),-1), yt,
-       col=bluefunc(10), border=bluefunc(10), lwd=0.5, xpd=NA)
-  rect(xl,yb,xr,yt, xpd=NA)
-  segments(seq(xl,xr,((xr-xl)/5)),yb,seq(xl,xr,((xr-xl)/5)),yb-((max(df$y)-min(df$y))/35), xpd=NA)
-  text(seq(xl,xr,((xr-xl)/5)), yb-((max(df$y)-min(df$y))/35)-1, labels = round(seq(min(df$exp), max(df$exp), (max(df$exp)-min(df$exp))/5),1), cex=0.85, xpd=NA)
-  text(xl+(xr-xl)/2, yb-((max(df$y)-min(df$y))/35)-3, labels = expression('log'[2]*' counts + 1'), xpd=NA)
-  
-  par(mar=c(8,6,8,2))
-  boxplot(df$exp~clusters[row.names(df)], col=as.character(levels(as.factor(clusters[row.names(df)]))), main=gene, ylab=expression('log'[2]*' counts + 1'), axes=FALSE)
-  box(bty="l"); axis(2, las=2)
-  text(x = 1:length(unique(clusters[row.names(df)])), y = min(df$exp)-0.5, srt = 45, adj=1, labels = levels(as.factor(clusters[row.names(df)])), xpd = NA)
-}
 ```
 
 We start from the batch corrected, normalised counts produced in the `02_batchCorrection.Rmd` script.
@@ -117,169 +90,188 @@ boxplot(qc$ercc/qc$libSize*100~cut[cut!=0], las=2, xlab="cluster", ylab="% in ER
 
 ### Cluster markers {.tabset}
 
-To get an initial idea of the identity of each cluster, we use the `findMarkers` function to identify genes with large fold-changes in a particular cluster compared to the rest.
+To get an initial idea of the identity of each cluster, we use the `findMarkers` function to identify genes with large fold-changes in a particular cluster compared to the rest. We require genes to be significant in all comparisons against all other clusters; this returns genes that are most specific to each cluster. But can be problematic if there are some closely related clusters that share markers.
 
-We filter genes requiring that they are not expressed at high levels in more than 5 clusters (to get fairly specific markers) and that they have large positive fold-changes compared to the other clusters. This results in this many putative marker genes for each cluster:
+This approach returns significant genes for all but one cluster.
 
 ```{r DEanalysis}
 ## use normalised counts and block by batch instead of using batch corrected counts
 sce <- readRDS(paste0(dir, "data/sce_goodQual.NORM.Rds"))
 
-keep <- rowMeans(dataNorm) > 0.1
-markersDE <- findMarkers(sce, groups = cut, block=sce$batch, direction="up", subset.row=keep)
-saveRDS(markersDE, file=paste0(dir, "results/markerGenes_clustersFirstLevel.Rds"))
+## add cluster info
+stopifnot(identical(colnames(logcounts(sce)), names(cut)))
+sce$clusters <- cut
 
+## remove outlier cell
+sce <- sce[,sce$clusters>0]
 
-## filter out genes expressed in too many clusters, as these won't be informative markers
-iqrs <- matrix(nrow=nrow(dataNorm), ncol=length(unique(cut)))
-for(i in 1:length(unique(cut))){
-  cells <- names(cut[cut==i])
-  iqrs[,i] <- sapply(row.names(dataNorm), function(x) quantile(log2(dataNorm[x,cells]+1), 0.75))
-}
-colnames(iqrs) <- paste0("cluster",1:12)
-row.names(iqrs) <- row.names(dataNorm)
-write.table(iqrs, paste0(dir, "results/3rdQuartileExpr_eachCluster.tsv"), quote = FALSE, sep="\t")
+## find markers
+keep <- rowMeans(logcounts(sce)) > 0.1
+markersDE <- findMarkers(sce, groups = sce$clusters, block=sce$batch, direction="up", subset.row=keep, pval.type="all")
+unlist(lapply(markersDE, function(x) sum(x$FDR<0.05)))
 
-counts0.75 <- as.data.frame(t(sapply(row.names(iqrs), function(x) as.numeric(iqrs[x,]>0))))
-colnames(counts0.75) <- paste0("cluster",1:12)
-write.table(counts0.75, paste0(dir, "results/3rdQuartileExpr_eachCluster_binarised.tsv"), quote = FALSE, sep="\t")
+saveRDS(markersDE, file=paste0(dir, "results/markerGenes_pval_all.Rds"))
+```
 
-## to retain genes that are quite specific to each cluster we restrict to those with the 3rd quartile greater than 0 in 5 clusters at most
-markersDE.sig <- list()
-for(i in names(markersDE)){
-  markersDE.sig[[i]] <- as.data.frame(markersDE[[i]][markersDE[[i]]$FDR < 0.05,])
-  markersDE.sig[[i]] <- markersDE.sig[[i]][rowSums(counts0.75[row.names(markersDE.sig[[i]]),])<6,]
-  markersDE.sig[[i]]$count <- sapply(1:nrow(markersDE.sig[[i]]), function(x) sum(markersDE.sig[[i]][x,-c(1:2)]<2)) ## count how many FC are small
-}
+To recover markers for cluster 2, we instead require the gene to be significantly different against at least 8 of the 12 clusters. This of course returns higher numbers of significant genes.
 
-markersDE.specific <- list()
-for(i in names(markersDE.sig)){
-  markersDE.specific[[i]] <- markersDE.sig[[i]][markersDE.sig[[i]]$count <= 5,]
-  markersDE.specific[[i]] <- markersDE.specific[[i]][order(markersDE.specific[[i]]$count),] ## order by those with fewest small FCs
+```{r DEanalysis_soft}
+markersDE.some <- findMarkers(sce, groups = sce$clusters, block=sce$batch, direction="up", subset.row=keep, pval.type="some", min.prop=0.75)
+unlist(lapply(markersDE.some, function(x) sum(x$FDR<0.05)))
+
+saveRDS(markersDE, file=paste0(dir, "results/markerGenes_pval_some0.75.Rds"))
+```
+
+Below is the expression of the top 10 genes found for each cluster:
+
+```{r plot}
+th <- theme_bw() + theme(axis.text.x = element_text(size=12), axis.title.x = element_text(size=12), axis.text.y = element_text(size=12), axis.title.y = element_text(size=12), axis.ticks.x = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"), panel.border = element_blank(), plot.title = element_text(face="bold", hjust = 0.5))
+
+plotGeneOnUMAP <- function(umap=umap, data=sce, clusters=clusters, gene=gene){
+  df <- data.frame(x=umap$x, y=umap$y, expr=as.numeric(logcounts(sce[gene,])), cluster=clusters)
+  df <- df[df$cluster>0,]
+  df <- df[order(df$expr),]
+  
+  p <- list()
+  p[[1]] <- ggplot(df, aes(x,y)) + geom_point(aes(colour=expr), alpha = 0.5) + scale_colour_gradientn(colours = colorRampPalette(c("grey", "lightblue", "dodgerblue4", "royalblue4"))(100)) + ggtitle(rowData(sce)[id,1]) + xlab("") + ylab("") + labs(colour=expression('log'[2]*' counts')) + th + theme(legend.position = "none") + guides(colour = guide_colorbar(title.position = "bottom"))
+  p[[2]] <- ggplot(df, aes(as.factor(cluster), expr)) + geom_boxplot(fill=1:12) + ggtitle(rowData(sce)[id,1]) + xlab("") + ylab("") + th
+  return(p)
 }
 ```
 
-Below is the expression of each (up to 20 per cluster):
-
 #### Cluster 1
 
-```{r cluster1, fig.width=10, fig.height=7}
+```{r cluster1, fig.width=6, fig.height=3}
 cluster <- 1
-for(i in 1:5){
-  id <- row.names(markersDE.specific[[cluster]])[i]
-  plotGeneOnTSNE(tsne = tsne, clusters = cut, gene = ann[id,1])
+for(i in 1:10){
+  id <- row.names(markersDE[[cluster]])[i]
+  plots <- plotGeneOnUMAP(umap = umap[-which(cut==0),], data = sce, clusters = cut[cut>0], gene = id)
+  print(ggarrange(plotlist = plots, ncol=2, nrow=1))
 }
 ```
 
 #### Cluster 2
 
-```{r cluster2, fig.width=10, fig.height=7}
+```{r cluster2, fig.width=6, fig.height=3}
 cluster <- 2
-for(i in 1:5){
-  id <- row.names(markersDE.specific[[cluster]])[i]
-  plotGeneOnTSNE(tsne = tsne, clusters = cut, gene = ann[id,1])
+for(i in 1:10){
+  id <- row.names(markersDE.some[[cluster]])[i]
+  plots <- plotGeneOnUMAP(umap = umap[-which(cut==0),], data = sce, clusters = cut[cut>0], gene = id)
+  print(ggarrange(plotlist = plots, ncol=2, nrow=1))
 }
 ```
 
 #### Cluster 3
 
-```{r cluster3, fig.width=10, fig.height=7}
+```{r cluster3, fig.width=6, fig.height=3}
 cluster <- 3
-for(i in 1:5){
-  id <- row.names(markersDE.specific[[cluster]])[i]
-  plotGeneOnTSNE(tsne = tsne, clusters = cut, gene = ann[id,1])
+for(i in 1:10){
+  id <- row.names(markersDE[[cluster]])[i]
+  plots <- plotGeneOnUMAP(umap = umap[-which(cut==0),], data = sce, clusters = cut[cut>0], gene = id)
+  print(ggarrange(plotlist = plots, ncol=2, nrow=1))
 }
 ```
 
 #### Cluster 4
 
-```{r cluster4, fig.width=10, fig.height=7}
+```{r cluster4, fig.width=6, fig.height=3}
 cluster <- 4
-for(i in 1:5){
-  id <- row.names(markersDE.specific[[cluster]])[i]
-  plotGeneOnTSNE(tsne = tsne, clusters = cut, gene = ann[id,1])
+for(i in 1:10){
+  id <- row.names(markersDE[[cluster]])[i]
+  plots <- plotGeneOnUMAP(umap = umap[-which(cut==0),], data = sce, clusters = cut[cut>0], gene = id)
+  print(ggarrange(plotlist = plots, ncol=2, nrow=1))
 }
 ```
 
 #### Cluster 5
 
-```{r cluster5, fig.width=10, fig.height=7}
+```{r cluster5, fig.width=6, fig.height=3}
 cluster <- 5
-for(i in 1:5){
-  id <- row.names(markersDE.specific[[cluster]])[i]
-  plotGeneOnTSNE(tsne = tsne, clusters = cut, gene = ann[id,1])
+for(i in 1:10){
+  id <- row.names(markersDE[[cluster]])[i]
+  plots <- plotGeneOnUMAP(umap = umap[-which(cut==0),], data = sce, clusters = cut[cut>0], gene = id)
+  print(ggarrange(plotlist = plots, ncol=2, nrow=1))
 }
 ```
 
 #### Cluster 6
 
-```{r cluster6, fig.width=10, fig.height=7}
+```{r cluster6, fig.width=6, fig.height=3}
 cluster <- 6
-for(i in 1:5){
-  id <- row.names(markersDE.specific[[cluster]])[i]
-  plotGeneOnTSNE(tsne = tsne, clusters = cut, gene = ann[id,1])
+for(i in 1:10){
+  id <- row.names(markersDE[[cluster]])[i]
+  plots <- plotGeneOnUMAP(umap = umap[-which(cut==0),], data = sce, clusters = cut[cut>0], gene = id)
+  print(ggarrange(plotlist = plots, ncol=2, nrow=1))
 }
 ```
 
 #### Cluster 7
 
-```{r cluster7, fig.width=10, fig.height=7}
+```{r cluster7, fig.width=6, fig.height=3}
 cluster <- 7
-for(i in 1:5){
-  id <- row.names(markersDE.specific[[cluster]])[i]
-  plotGeneOnTSNE(tsne = tsne, clusters = cut, gene = ann[id,1])
+for(i in 1:10){
+  id <- row.names(markersDE[[cluster]])[i]
+  plots <- plotGeneOnUMAP(umap = umap[-which(cut==0),], data = sce, clusters = cut[cut>0], gene = id)
+  print(ggarrange(plotlist = plots, ncol=2, nrow=1))
 }
 ```
 
 #### Cluster 8
 
-```{r cluster8, fig.width=10, fig.height=7}
+```{r cluster8, fig.width=6, fig.height=3}
 cluster <- 8
-for(i in 1:5){
-  id <- row.names(markersDE.specific[[cluster]])[i]
-  plotGeneOnTSNE(tsne = tsne, clusters = cut, gene = ann[id,1])
+for(i in 1:10){
+  id <- row.names(markersDE[[cluster]])[i]
+  plots <- plotGeneOnUMAP(umap = umap[-which(cut==0),], data = sce, clusters = cut[cut>0], gene = id)
+  print(ggarrange(plotlist = plots, ncol=2, nrow=1))
 }
 ```
 
 #### Cluster 9
 
-```{r cluster9, fig.width=10, fig.height=7}
+```{r cluster9, fig.width=6, fig.height=3}
 cluster <- 9
-for(i in 1:5){
-  id <- row.names(markersDE.specific[[cluster]])[i]
-  plotGeneOnTSNE(tsne = tsne, clusters = cut, gene = ann[id,1])
+for(i in 1:10){
+  id <- row.names(markersDE[[cluster]])[i]
+  plots <- plotGeneOnUMAP(umap = umap[-which(cut==0),], data = sce, clusters = cut[cut>0], gene = id)
+  print(ggarrange(plotlist = plots, ncol=2, nrow=1))
 }
 ```
 
 #### Cluster 10
 
-```{r cluster10, fig.width=10, fig.height=7}
+```{r cluster10, fig.width=6, fig.height=3}
 cluster <- 10
-for(i in 1:5){
-  id <- row.names(markersDE.specific[[cluster]])[i]
-  plotGeneOnTSNE(tsne = tsne, clusters = cut, gene = ann[id,1])
+for(i in 1:10){
+  id <- row.names(markersDE[[cluster]])[i]
+  plots <- plotGeneOnUMAP(umap = umap[-which(cut==0),], data = sce, clusters = cut[cut>0], gene = id)
+  print(ggarrange(plotlist = plots, ncol=2, nrow=1))
 }
 ```
 
 #### Cluster 11
 
-```{r cluster11, fig.width=10, fig.height=7}
+```{r cluster11, fig.width=6, fig.height=3}
 cluster <- 11
-for(i in 1:5){
-  id <- row.names(markersDE.specific[[cluster]])[i]
-  plotGeneOnTSNE(tsne = tsne, clusters = cut, gene = ann[id,1])
+for(i in 1:10){
+  id <- row.names(markersDE[[cluster]])[i]
+  plots <- plotGeneOnUMAP(umap = umap[-which(cut==0),], data = sce, clusters = cut[cut>0], gene = id)
+  print(ggarrange(plotlist = plots, ncol=2, nrow=1))
 }
 ```
 
 #### Cluster 12
 
-```{r cluster12, fig.width=10, fig.height=7}
+```{r cluster12, fig.width=6, fig.height=3}
 cluster <- 12
-for(i in 1:5){
-  id <- row.names(markersDE.specific[[cluster]])[i]
-  plotGeneOnTSNE(tsne = tsne, clusters = cut, gene = ann[id,1])
+for(i in 1:10){
+  id <- row.names(markersDE[[cluster]])[i]
+  plots <- plotGeneOnUMAP(umap = umap[-which(cut==0),], data = sce, clusters = cut[cut>0], gene = id)
+  print(ggarrange(plotlist = plots, ncol=2, nrow=1))
 }
 ```
+
+###
 
 ```{r info}
 sessionInfo()
