@@ -105,7 +105,7 @@ Finally, we visualise the corrected data.
 
 ```{r umap_corrected}
 ## visualise corrected data, which is already cosine normalised
-set.seed(964)
+set.seed(837)
 sce.corr <- runUMAP(sce.corr, subset_row = hvgs, exprs_values = "reconstructed")
 
 umap <- as.data.frame(reducedDim(sce.corr, "UMAP"))

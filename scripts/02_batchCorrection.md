@@ -1,6 +1,6 @@
 ---
 title: "<span style='font-size: 28px'>Single-cell RNAseq of mouse heart development</style>"
-date: '06 November, 2019'
+date: '09 November, 2019'
 output:
   html_document:
     keep_md: true
@@ -102,7 +102,7 @@ Finally, we visualise the corrected data.
 
 ```r
 ## visualise corrected data, which is already cosine normalised
-set.seed(964)
+set.seed(837)
 sce.corr <- runUMAP(sce.corr, subset_row = hvgs, exprs_values = "reconstructed")
 
 umap <- as.data.frame(reducedDim(sce.corr, "UMAP"))
