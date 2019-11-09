@@ -117,7 +117,7 @@ umap$batch <- sce$batch
 ## randomise order per batch
 tmp <- umap[sample(row.names(umap), nrow(umap), replace = FALSE),]
 plot(tmp$x, tmp$y, pch=16, cex=0.75, col=tmp$batch, xlab="UMAP - dim1", ylab="UMAP - dim2", bty="l")
-legend("topleft", legend = levels(tmp$batch), col=1:7, pch=16, cex=0.85)
+legend("topright", legend = levels(tmp$batch), col=1:7, pch=16, cex=0.85)
 ```
 
 Cells from all batches are now well mixed and the clusters should reflect different biological populations.
