@@ -22,7 +22,7 @@ We start from the batch corrected, normalised counts produced in the `02_batchCo
 
 ```r
 ## normalised, batch corrected counts
-sce.corr <- readRDS(paste0(dir, "data/sce.goodQual.NORM.batchCorrected.Rds"))
+sce.corr <- readRDS(paste0(dir, "data/sce_goodQual.NORM.batchCorrected.Rds"))
 
 ## HVGs
 hvgs <- read.table(paste0(dir, "results/HVGs_minMean1_FDR0.05.tsv"), stringsAsFactors = FALSE)
