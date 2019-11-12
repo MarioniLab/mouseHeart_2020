@@ -1,6 +1,6 @@
 ---
 title: "<span style='font-size: 28px'>Single-cell RNAseq of mouse heart development</style>"
-date: '09 November, 2019'
+date: '12 November, 2019'
 output:
   html_document:
     keep_md: true
@@ -15,6 +15,7 @@ output:
 
 
 
+### Clustering
 
 We start from the batch corrected, normalised counts produced in the `02_batchCorrection.Rmd` script.
 

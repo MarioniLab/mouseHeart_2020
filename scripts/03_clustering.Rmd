@@ -26,6 +26,8 @@ dir <- "/Users/ibarra01/OneDrive - CRUK Cambridge Institute/github/mouseHeart_ea
 palette(brewer.pal(n=12, "Set3"))
 ```
 
+### Clustering
+
 We start from the batch corrected, normalised counts produced in the `02_batchCorrection.Rmd` script.
 
 ```{r loadData}
