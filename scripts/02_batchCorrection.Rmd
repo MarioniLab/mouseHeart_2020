@@ -95,7 +95,7 @@ For batch correction, the order of the batches is important; we should use as *r
 ## specifiy which cells corrspond to which batch; levels indicate the order for merging
 batch <- factor(sce$batch, levels=paste0("batch_", c(5,4,6,3,2,7,1)))
 sce.corr <- fastMNN(sce, batch=batch, subset.row = hvgs, correct.all = TRUE)
-saveRDS(sce.corr, paste0(dir, "data/sce.goodQual.NORM.batchCorrected.Rds"))
+saveRDS(sce.corr, paste0(dir, "data/sce_goodQual.NORM.batchCorrected.Rds"))
 
 dataCorr <- assay(sce.corr, "reconstructed")
 saveRDS(dataCorr, file = paste0(dir, "data/heartData_unbiased.goodQual.NORM.batchCorrected.Rds"))

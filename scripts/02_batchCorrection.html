@@ -324,7 +324,7 @@ write.table(hvgs, file=paste0(dir, &quot;results/HVGs_minMean1_FDR0.05.tsv&quot;
 ## specifiy which cells corrspond to which batch; levels indicate the order for merging
 batch &lt;- factor(sce$batch, levels=paste0(&quot;batch_&quot;, c(5,4,6,3,2,7,1)))
 sce.corr &lt;- fastMNN(sce, batch=batch, subset.row = hvgs, correct.all = TRUE)
-saveRDS(sce.corr, paste0(dir, &quot;data/sce.goodQual.NORM.batchCorrected.Rds&quot;))
+saveRDS(sce.corr, paste0(dir, &quot;data/sce_goodQual.NORM.batchCorrected.Rds&quot;))
 
 dataCorr &lt;- assay(sce.corr, &quot;reconstructed&quot;)
 saveRDS(dataCorr, file = paste0(dir, &quot;data/heartData_unbiased.goodQual.NORM.batchCorrected.Rds&quot;))</code></pre>
