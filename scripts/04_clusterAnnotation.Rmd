@@ -1,0 +1,173 @@
+---
+title: "<span style='font-size: 28px'>Single-cell RNAseq of mouse heart development</style>"
+date: '`r format(Sys.time(), "%d %B, %Y")`'
+output:
+  html_document:
+    keep_md: true
+    fig_width: 5
+    fig_height: 5
+    fig_caption: yes
+    code_folding: hide
+    toc: true
+    toc_float: 
+      collapsed: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(scran)
+library(dynamicTreeCut)
+library(RColorBrewer)
+library(ggplot2)
+library(ggpubr)
+library(ComplexHeatmap)
+
+dir <- "/Users/ibarra01/OneDrive - CRUK Cambridge Institute/github/mouseHeart_earlyDev_atlas/"
+
+palette(brewer.pal(n=12, "Set3"))
+
+th <- theme_bw() + theme(axis.text.x = element_text(size=12), axis.title.x = element_text(size=12), axis.text.y = element_text(size=12), axis.title.y = element_text(size=12), axis.ticks.x = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"), panel.border = element_blank(), plot.title = element_text(face="bold", hjust = 0.5))
+```
+
+### Cluster annotation
+
+Having clustered the data, we can annotate each subpopulation based on the expression of marker genes. We have explored the results from the marker analysis, and now also use well known genes from the literature to assign cell type identities.
+
+```{r loadData}
+## normalised, batch corrected counts
+sce <- readRDS(paste0(dir, "data/sce_goodQual.NORM.Rds"))
+
+## add cluster annotation
+clusters <- read.table(paste0(dir, "results/clusters_average_min40.tsv"), row.names = 1)
+stopifnot(identical(colnames(sce), row.names(clusters)))
+sce$cluster <- clusters$V2
+
+clusters <- sce$cluster
+names(clusters) <- colnames(sce)
+
+## UMAP
+umap <- read.table(paste0(dir, "results/umapCoords_corrected.tab"))
+stopifnot(identical(colnames(sce), row.names(umap)))
+reducedDim(sce, "UMAP") <- umap
+
+plot(umap$x, umap$y, pch=16, col=clusters, bty="l", xlab="UMAP dim1", ylab="UMAP dim2")
+legend("topright", legend = paste0("cluster", 1:12), col=1:12, pch=16, cex=0.75)
+```
+
+Below are some well-known marker genes.
+
+Endoderm:
+
+```{r plot_umap, fig.width=10, fig.height=4}
+plotGeneOnUMAP <- function(umap=umap, data=sce, gene=gene){
+  df <- data.frame(x=umap$x, y=umap$y, expr=logcounts(sce)[which(rowData(sce)$gene == gene),])
+  df <- df[order(df$expr),]
+  p <- ggplot(df, aes(x,y)) + geom_point(aes(colour=expr), alpha = 0.5, cex=1.5) + scale_colour_gradientn(colours = colorRampPalette(c("grey", "lightblue", "dodgerblue4", "royalblue4"))(100)) + ggtitle(gene) + xlab("") + ylab("") + labs(colour=expression('log'[2]*' counts')) + th + theme(axis.ticks.y = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank(), legend.position = "bottom", legend.text.align = 0.5, legend.title.align = 0.5) + guides(colour = guide_colorbar(title.position = "bottom"))
+  return(p)
+}
+
+## endoderm
+plots <- list()
+plots[[1]] <- plotGeneOnUMAP(umap = umap, data = sce, gene = "Foxa2")
+plots[[2]] <- plotGeneOnUMAP(umap = umap, data = sce, gene = "Sox17")
+plots[[3]] <- plotGeneOnUMAP(umap = umap, data = sce, gene = "Hhex")
+plots[[4]] <- plotGeneOnUMAP(umap = umap, data = sce, gene = "Ttr")
+
+ggarrange(plotlist = plots, ncol = 4, nrow = 1)
+```
+
+Ectoderm:
+
+```{r plot_umap2, fig.width=10, fig.height=4}
+## ectoderm
+plots <- list()
+plots[[1]] <- plotGeneOnUMAP(umap = umap, data = sce, gene = "Cdh1")
+plots[[2]] <- plotGeneOnUMAP(umap = umap, data = sce, gene = "Sox2")
+plots[[3]] <- plotGeneOnUMAP(umap = umap, data = sce, gene = "Pou5f1")
+plots[[4]] <- plotGeneOnUMAP(umap = umap, data = sce, gene = "Pax6")
+
+ggarrange(plotlist = plots, ncol = 4, nrow = 1)
+```
+
+Mesoderm:
+
+```{r plot_umap3, fig.width=10, fig.height=4}
+## mesoderm
+plots <- list()
+plots[[1]] <- plotGeneOnUMAP(umap = umap, data = sce, gene = "Mef2c")
+plots[[2]] <- plotGeneOnUMAP(umap = umap, data = sce, gene = "Nkx2-5")
+plots[[3]] <- plotGeneOnUMAP(umap = umap, data = sce, gene = "Emcn")
+plots[[4]] <- plotGeneOnUMAP(umap = umap, data = sce, gene = "Runx1")
+
+ggarrange(plotlist = plots, ncol = 4, nrow = 1)
+```
+
+Based on this, we can say that:
+
+- Clusters 3 and 5 are endodermal cells.
+- Clusters 7 and 9 are ectodermal cells.
+- All other clusters are mesodermal cells:
+    + Clusters 1, 2, 4, 6 and 10 are within the cardiac lineage.
+    + Cluster 11: endothelial cells.
+    + Cluster 12: blood cells.
+
+And we can visualise these and other well-known markers as a heatmap:
+
+```{r heatmap, fig.width=7}
+## known marker genes
+markers <- c("Afp","Ttr","Sox17","Hhex","Foxa2","Cdh1","Pax9","Sox2","Dlx5","Tfap2a","Wnt6","Sox1","Tbx1","Snai1","Isl1","Hand1","Smarcd3","Tbx5","Nkx2-5","Ttn","Myh6","Actn2","Gata1","Runx1","Hba-a1","Tal1","Pecam1","Tie1","Cdh5","Emcn")
+markers.ids <- row.names(rowData(sce)[match(markers,rowData(sce)$gene),])
+
+## normalised counts
+sce <- sce[,-which(sce$cluster==0)]
+data <- logcounts(sce)[markers.ids,]
+data <- t(apply(data, 1, function(x) x/max(x))) # standardise
+row.names(data) <- rowData(sce)[row.names(data),]$gene
+
+## hierarchical clustering of the rows
+clust <- hclust(dist(t(data)))
+order <- colnames(data)[rev(clust$order)]
+## reorder by cluster
+order <- clusters[order]
+order <- c((order[order==5]), order[order==3], order[order==7], order[order==9], order[order==8], order[order==2], order[order==4], order[order==10], order[order==6], order[order==1], order[order==12], order[order==11])
+
+## heatmap
+cols <- brewer.pal(n=12, "Set3")
+names(cols) <- paste0("cluster",1:12)
+ha  <- HeatmapAnnotation(df = data.frame(cluster = paste0("cluster",sce[,names(order)]$cluster)), col = list(cluster = cols))
+
+Heatmap(data[,names(order)], cluster_columns = FALSE, cluster_rows = FALSE, col=brewer.pal(n=9, name="Purples")[1:7], show_column_names = FALSE, top_annotation = ha, show_heatmap_legend = FALSE)
+```
+
+Finally, we give each cluster a name that reflects their germ layer, and change the colours for each.
+
+```{r colour_umap}
+## annotate the clusters
+ann <- c("En1","En2","Ec1","Ec2",paste0("Me",1:8)) # En, Ec and Me for the three germ layers
+names(ann) <- c(3, 5, 7, 9, 12, 11, 1, 6, 4, 10, 2, 8)
+ann <- ann[order(as.numeric(names(ann)))]
+
+## use specific colors for plotting
+cols <- c(Ec1 = "#ec6646", Ec2 = "#af4424", En1 = "#3c537c", En2 = "#768ba5",
+          Me1 = "#bf9a77", Me2 = "#debc95", Me3 = "#556dad", Me4 = "#f28a31", 
+          Me5 = "#729f3c", Me6 = "#fbba14", Me7 = "#5fa398", Me8 = "#9FD3C5")
+
+## add info to sce object
+sce$clusterAnn <- ann[clusters]
+sce$clusterCol <- cols[sce$clusterAnn]
+
+order <- sample(1:ncol(sce), ncol(sce), replace = FALSE)
+plot(reducedDim(sce)$x[order], reducedDim(sce)$y[order], pch=16, col=sce$clusterCol[order], bty="l", xlab="UMAP dim1", ylab="UMAP dim2")
+legend("topright", legend = ann[order(ann)], col=cols[ann[order(ann)]], pch=16, cex=0.75)
+```
+
+```{r save}
+## save sce object with cluster annotation and colour
+saveRDS(sce, file=paste0(dir, "data/sce_goodQual.NORM.clusters.Rds"))
+```
+
+
+```{r info}
+sessionInfo()
+```
+
