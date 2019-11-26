@@ -121,7 +121,7 @@ To recover markers for cluster 2, we instead require the gene to be significantl
 markersDE.some <- findMarkers(sce, groups = sce$clusters, block=sce$batch, direction="up", subset.row=keep, pval.type="some", min.prop=0.75)
 unlist(lapply(markersDE.some, function(x) sum(x$FDR<0.05)))
 
-saveRDS(markersDE, file=paste0(dir, "results/markerGenes_pval_some0.75.Rds"))
+saveRDS(markersDE.some, file=paste0(dir, "results/markerGenes_pval_some0.75.Rds"))
 ```
 
 Below is the expression of the top 10 genes found for each cluster:

@@ -1,6 +1,6 @@
 ---
 title: "<span style='font-size: 28px'>Single-cell RNAseq of mouse heart development</style>"
-date: '12 November, 2019'
+date: '26 November, 2019'
 output:
   html_document:
     keep_md: true
@@ -156,7 +156,7 @@ unlist(lapply(markersDE.some, function(x) sum(x$FDR<0.05)))
 ```
 
 ```r
-saveRDS(markersDE, file=paste0(dir, "results/markerGenes_pval_some0.75.Rds"))
+saveRDS(markersDE.some, file=paste0(dir, "results/markerGenes_pval_some0.75.Rds"))
 ```
 
 Below is the expression of the top 10 genes found for each cluster:
