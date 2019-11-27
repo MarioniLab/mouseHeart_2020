@@ -21,6 +21,7 @@ library(ggplot2)
 library(ggpubr)
 library(RColorBrewer)
 library(gplots)
+library(locfit)
 
 dir <- "/Users/ibarra01/OneDrive - CRUK Cambridge Institute/github/mouseHeart_earlyDev_atlas/"
 
@@ -56,10 +57,10 @@ sce <- readRDS(paste0(dir, "data/sce_goodQual.NORM.clusters.Rds"))
 plot(reducedDim(sce)$x, reducedDim(sce)$y, pch=16, col=sce$clusterCol, xlab="", ylab="", axes=FALSE)
 box(bty="l")
 legend("topright", legend = names(cols), col=cols, cex=0.75, pch=16)
-text(6, 15, labels = "ectoderm", col="firebrick", cex=0.75, font=2)
-text(10, -3, labels = "endoderm", col="steelblue4", cex=0.75, font=2)
-text(-3, 4, labels = "cardiac mesoderm", col="darkolivegreen", cex=0.75, font=2)
-text(-10, 7, labels = "endothelium", col="wheat3", cex=0.75, font=2)
+text(7, 14, labels = "ectoderm", col="firebrick", cex=0.75, font=2)
+text(9, -3, labels = "endoderm", col="steelblue4", cex=0.75, font=2)
+text(-3.5, 5, labels = "cardiac mesoderm", col="darkolivegreen", cex=0.75, font=2)
+text(-9, 8, labels = "endothelium", col="wheat3", cex=0.75, font=2)
 text(6, 1.5, labels = "blood", col="burlywood3", cex=0.75, font=2)
 ```
 
@@ -232,7 +233,7 @@ plots[[2]] <- plot(dpt.me7, col_by="branch", root=1, path=c(2,3), divide=2, dcs=
 ggarrange(plotlist = plots, ncol = 2, nrow = 1)
 ```
 
-#### Conclusions
+#### Recap
 
 All together, we can identify two different trajectories leading to mature cardiomyocytes:
 
@@ -241,14 +242,142 @@ All together, we can identify two different trajectories leading to mature cardi
     - A small number of cells at the tip of Me5 branch out towards a different trajectory, away from cardiomyocytes.
 - Another path starting in the turquoise cells from Me7 and Me8, that goes through the yellow (Me6) and some cells from the orange (Me4) clusters.
 
+#### Dynamic gene expression
+
+Based on the two trajectories computed above, we can define the pseudotime progression of cells in each, considering only the branch going to mature cardiomyocytes, and ignoring the cells branching off from the yellow and orange clusters in the Me5 and Me7 trajectories respectively.
+
+Many of the mature cardiomyocytes are shared between the two trajectories, but the intermediate cells linking them to the progenitors are different.
+
+```{r pseudotime, fig.width=12, fig.height=4}
+## define pseudotime for the Me5->Me3 trajectory
+## consider only cells in branches 1 and 2
+cells.me5 <- row.names(dpt.me5@branch)[which(dpt.me5@branch[,1] %in% 1:2)]
+
+# find which tip corresponds to Me5
+# which(dpt.me5@tips[,1])
+# plot(dpt.me5, col_by="DPT1135")
+diffPseudotime_me5 <- dpt.me5$DPT1135
+names(diffPseudotime_me5) <- colnames(sce.corr.Me5)
+diffPseudotime_me5 <- diffPseudotime_me5[cells.me5]
+
+
+## define pseudotime for the Me7->Me3 trajectory
+## consider only cells in branches 1 and 2
+cells.me7 <- row.names(dpt.me7@branch)[which(dpt.me7@branch[,1] %in% 1:2)]
+
+# find which tip corresponds to Me7
+# which(dpt.me7@tips[,1])
+# plot(dpt.me7, col_by="DPT1161")
+diffPseudotime_me7 <- dpt.me7$DPT1161
+names(diffPseudotime_me7) <- colnames(sce.corr.Me7)
+diffPseudotime_me7 <- diffPseudotime_me7[cells.me7]
+
+plots <- list()
+plots[[1]] <- ggplot(dm, aes(DC1, DC2, colour=sce.cardiac$clusterAnn)) + geom_point() + scale_color_manual(values=cols) + labs(colour="pop") + ggtitle("Clusters") + theme(plot.title = element_text(face="bold", hjust = 0.5)) + th
+plots[[2]] <- ggplot(dm, aes(DC1, DC2)) + geom_point(data=dm[setdiff(row.names(dm), names(diffPseudotime_me5)),], col="grey", size=1) + geom_point(data=dm[names(diffPseudotime_me5),], aes(col = diffPseudotime_me5)) + scale_colour_gradientn(colours = brewer.pal(n = 9, name = "Greens")[-c(1,9)]) + labs(colour="DPT") + ggtitle("Me5 -> Me3 trajectory") + theme(plot.title = element_text(face="bold", hjust = 0.5)) + th
+plots[[3]] <- ggplot(dm, aes(DC1, DC2)) + geom_point(data=dm[setdiff(row.names(dm), names(diffPseudotime_me7)),], col="grey", size=1) + geom_point(data=dm[names(diffPseudotime_me7),], aes(col = diffPseudotime_me7)) + scale_colour_gradientn(colours = brewer.pal(n = 9, name = "Blues")[-c(1,9)]) + labs(colour="DPT") + ggtitle("Me7 -> Me3 trajectory") + theme(plot.title = element_text(face="bold", hjust = 0.5)) + th
+
+ggarrange(plotlist = plots, ncol = 3, nrow = 1)
+```
+
+Based on these cell orderings, we can identify genes that are expressed dynamically along the trajectories. For this, we follow the method used in *Ibarra-Soria, Wajid et al., Nat Cell Biol, 2018*.
+
+```{r dynGenes_me5}
+## Me5->Me3 trajectory
+diffPseudotime_me5 <- diffPseudotime_me5[order(diffPseudotime_me5)]
+data <- logcounts(sce)[,names(diffPseudotime_me5)]
+data <- data[rowSums(data)>0,] ## remove non-expressed genes
+
+## only test genes expressed at decent levels
+keep <- rowMeans(data) > 0.1
+data <- data[keep,]
+
+## fit polynomials of degree 0 and 2 with local regression, and compute the difference in their AIC
+## we use linear insted of logistic regression (as in the Nat Cell Bio paper) because it is SmartSeq2 data instead of 10X
+smooth = 1
+deltaAIC_me5 <- sapply(row.names(data), function(x){
+  df <- data.frame(diffPseudotime_me5, data[x,])
+  delta <- aic(df[,2]~lp(df[,1], nn=smooth, deg=2), data=df)['aic'] - aic(df[,2]~lp(df[,1], nn=smooth, deg=0), data=df)['aic']
+  return(delta)
+})
+names(deltaAIC_me5) <- row.names(data)
+deltaAIC_me5 <- deltaAIC_me5[order(deltaAIC_me5)]
+
+# plot(density(deltaAIC_me5))
+# length(deltaAIC_me5[deltaAIC_me5 < -100])  # 2316
+# length(deltaAIC_me5[deltaAIC_me5 < -200])  # 1143
+# length(deltaAIC_me5[deltaAIC_me5 < -300])  # 726
+
+dynGenes_me5 <- deltaAIC_me5[deltaAIC_me5 < -300]
+
+# for(gene in names(deltaAIC_me5[701:710])){
+#   df <- data.frame(diffPseudotime_me5, data[gene,])
+#   fit0 <- locfit(df[,2]~lp(df[,1], nn=smooth, deg=0), data=df)
+#   fit2 <- locfit(df[,2]~lp(df[,1], nn=smooth, deg=2), data=df)
+# 
+#   plot(df[,1], df[,2], pch=16, col=rgb(0,0,0,0.3), bty="l", xlab="Me5 ---> Me3", ylab=expression('log'[2]*' expression'), main=rowData(sce)[gene,1])
+#   lines(diffPseudotime_me5, predict(fit0, diffPseudotime_me5), lwd=3, col="steelblue2")
+#   lines(diffPseudotime_me5, predict(fit2, diffPseudotime_me5), lwd=3, col="indianred2")
+# }
+```
+
+We identify `r length(dynGenes_me5)` genes dynamically expressed from the Me5 green progenitors down to cardiomyocytes.
+
+```{r dynGenes_me7}
+## Me7->Me3 trajectory
+diffPseudotime_me7 <- diffPseudotime_me7[order(diffPseudotime_me7)]
+data <- logcounts(sce)[,names(diffPseudotime_me7)]
+data <- data[rowSums(data)>0,] ## remove non-expressed genes
+
+## only test genes expressed at decent levels
+keep <- rowMeans(data) > 0.1
+data <- data[keep,]
+
+## fit polynomials of degree 0 and 2 with local regression, and compute the difference in their AIC
+## we use linear insted of logistic regression (as in the Nat Cell Bio paper) because it is SmartSeq2 data instead of 10X
+smooth = 1
+deltaAIC_me7 <- sapply(row.names(data), function(x){
+  df <- data.frame(diffPseudotime_me7, data[x,])
+  delta <- aic(df[,2]~lp(df[,1], nn=smooth, deg=2), data=df)['aic'] - aic(df[,2]~lp(df[,1], nn=smooth, deg=0), data=df)['aic']
+  return(delta)
+})
+names(deltaAIC_me7) <- row.names(data)
+deltaAIC_me7 <- deltaAIC_me7[order(deltaAIC_me7)]
+
+# plot(density(deltaAIC_me7))
+# length(deltaAIC_me7[deltaAIC_me7 < -100])  # 3281
+# length(deltaAIC_me7[deltaAIC_me7 < -200])  # 1747
+# length(deltaAIC_me7[deltaAIC_me7 < -300])  # 1110
+
+dynGenes_me7 <- deltaAIC_me7[deltaAIC_me7 < -300]
+
+# gene  <- names(deltaAIC_me7[472])
+# df <- data.frame(diffPseudotime_me7, data[gene,]); colnames(df) <- c("DPT", "expr")
+# fit0 <- locfit(df[,2]~lp(df[,1], nn=smooth, deg=0), data=df)
+# fit2 <- locfit(df[,2]~lp(df[,1], nn=smooth, deg=2), data=df)
+# ggplot(df, aes(DPT, expr)) + geom_point(colour=sce[,names(diffPseudotime_me7)]$clusterCol, alpha=0.5) + geom_line(aes(diffPseudotime_me7, predict(fit0, diffPseudotime_me7)), lwd=1, col="steelblue2") + geom_line(aes(diffPseudotime_me7, predict(fit2, diffPseudotime_me7)), lwd=1, col="indianred2") + th
+```
+
+And `r length(dynGenes_me7)` genes dynamic genes from the Me7 turquoise progenitors.
+
 ```{r save}
+## diffusion map
 saveRDS(diffMap, paste0(dir, "results/diffusionMap_cardiacMesoderm.Rds"))
 saveRDS(diffMap.me5, paste0(dir, "results/diffusionMap_Me5.Rds"))
 saveRDS(diffMap.me7, paste0(dir, "results/diffusionMap_Me7.Rds"))
 
+## DPT
 saveRDS(dpt, paste0(dir, "results/diffusionPseudotime_cardiacMesoderm.Rds"))
 saveRDS(dpt.me5, paste0(dir, "results/diffusionPseudotime_Me5.Rds"))
 saveRDS(dpt.me7, paste0(dir, "results/diffusionPseudotime_Me7.Rds"))
+
+## diffusion pseudotime for each trajectory
+write.table(diffPseudotime_me5, file=paste0(dir, "results/diffusionPseudotime_Me5.tsv"), quote = FALSE, sep="\t", col.names = FALSE)
+write.table(diffPseudotime_me7, file=paste0(dir, "results/diffusionPseudotime_Me7.tsv"), quote = FALSE, sep="\t", col.names = FALSE)
+
+## dynamic genes.
+write.table(deltaAIC_me5, file = paste0(dir, "results/deltaAIC_Me5.tsv"), quote = FALSE, sep="\t", col.names = FALSE)
+write.table(deltaAIC_me7, file = paste0(dir, "results/deltaAIC_Me7.tsv"), quote = FALSE, sep="\t", col.names = FALSE)
 ```
 
 
