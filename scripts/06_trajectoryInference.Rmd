@@ -1,0 +1,259 @@
+---
+title: "<span style='font-size: 28px'>Single-cell RNAseq of mouse heart development</style>"
+date: '`r format(Sys.time(), "%d %B, %Y")`'
+output:
+  html_document:
+    keep_md: true
+    fig_width: 5
+    fig_height: 5
+    fig_caption: yes
+    code_folding: hide
+    toc: true
+    toc_float: 
+      collapsed: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(scran)
+library(destiny)
+library(ggplot2)
+library(ggpubr)
+library(RColorBrewer)
+library(gplots)
+
+dir <- "/Users/ibarra01/OneDrive - CRUK Cambridge Institute/github/mouseHeart_earlyDev_atlas/"
+
+palette(brewer.pal(n=12, "Set3"))
+
+th <- theme_bw() + theme(axis.text.x = element_text(size=12), axis.title.x = element_text(size=12), axis.text.y = element_text(size=12), axis.title.y = element_text(size=12), axis.ticks.x = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"), panel.border = element_blank(), plot.title = element_text(face="bold", hjust = 0.5))
+
+## cluster colours
+cols <- c(Ec1 = "#ec6646", Ec2 = "#af4424", En1 = "#3c537c", En2 = "#768ba5",
+          Me1 = "#bf9a77", Me2 = "#debc95", Me3 = "#556dad", Me4 = "#f28a31", 
+          Me5 = "#729f3c", Me6 = "#fbba14", Me7 = "#5fa398", Me8 = "#9FD3C5")
+```
+
+### Trajectory inference
+
+We begin with the normalised and batch-corrected data from `02_batchCorrections.Rmd`.
+
+```{r loadData}
+## normalised, batch corrected counts
+sce.corr <- readRDS(paste0(dir, "data/sce_goodQual.NORM.batchCorrected.Rds"))
+
+## HVGs
+hvgs <- read.table(paste0(dir, "results/HVGs_minMean1_FDR0.05.tsv"), stringsAsFactors = FALSE)
+hvgs <- hvgs$V1
+```
+
+We have clustered the cells into different cell types, from all three germ layers, and used the expression of marker genes to annotate them.
+
+```{r clusters}
+## clustering results
+sce <- readRDS(paste0(dir, "data/sce_goodQual.NORM.clusters.Rds"))
+
+plot(reducedDim(sce)$x, reducedDim(sce)$y, pch=16, col=sce$clusterCol, xlab="", ylab="", axes=FALSE)
+box(bty="l")
+legend("topright", legend = names(cols), col=cols, cex=0.75, pch=16)
+text(6, 15, labels = "ectoderm", col="firebrick", cex=0.75, font=2)
+text(10, -3, labels = "endoderm", col="steelblue4", cex=0.75, font=2)
+text(-3, 4, labels = "cardiac mesoderm", col="darkolivegreen", cex=0.75, font=2)
+text(-10, 7, labels = "endothelium", col="wheat3", cex=0.75, font=2)
+text(6, 1.5, labels = "blood", col="burlywood3", cex=0.75, font=2)
+```
+
+Both the turquoise (Me7-8) and green (Me5) clusters from the cardiac mesoderm subpopulation are *progenitor-like*, while the blue (Me3) subcluster contains the most *mature cardiomyocytes*. The orange (Me4) and yellow (Me6) clusters are intermediates between the cardiomyocytes and progenitor cells.
+
+Interestingly, expression of markers of the first heart field (*Hand1*) are predominant in the green and orange clusters, while second heart field genes (*Isl1*) are biased towards the turquoise and yellow clusters. 
+
+```{r plot_markers, fig.width=8, fig.height=4}
+plotGeneOnUMAP <- function(umap=umap, data=data, gene=gene){
+  df <- data.frame(x=umap$x, y=umap$y, expr=logcounts(data)[which(rowData(data)$gene == gene),])
+  df <- df[order(df$expr),]
+  p <- ggplot(df, aes(x,y)) + geom_point(aes(colour=expr), alpha = 0.5, cex=1.5) + scale_colour_gradientn(colours = colorRampPalette(c("grey", "lightblue", "dodgerblue4", "royalblue4"))(100)) + ggtitle(gene) + xlab("") + ylab("") + labs(colour=expression('log'[2]*' counts')) + th + theme(axis.ticks.y = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank(), legend.position = "bottom", legend.text.align = 0.5, legend.title.align = 0.5) + guides(colour = guide_colorbar(title.position = "bottom"))
+  return(p)
+}
+
+plots <- list()
+plots[[1]] <- plotGeneOnUMAP(umap = reducedDim(sce), data = sce, gene = "Hand1")
+plots[[2]] <- plotGeneOnUMAP(umap = reducedDim(sce), data = sce, gene = "Isl1")
+
+ggarrange(plotlist = plots, ncol = 2, nrow = 1)
+```
+
+We will use a diffusion map approach to study the differentiation trajectories from the progenitor populations towards cardiomyocytes.
+
+```{r cardiacMesoderm}
+## select only cells in cardiac clusters
+sce.cardiac <- sce[,sce$clusterAnn %in% paste0("Me", c(3:8))]
+sce.corr.cardiac <- sce.corr[,colnames(sce.cardiac)]
+# plot(reducedDim(sce.cardiac)$x, reducedDim(sce.cardiac)$y, pch=16, col=sce.cardiac$clusterCol)
+```
+
+Using all cells in the cardiac mesoderm clusters, the diffusion map embedding arranges cells in a triangular structure, with the two progenitor populations and the cardiomyocytes at the tips; the yellow and orange clusters are intermediates, with the orange stretching out to both progenitor types.
+
+```{r DM, fig.width=10}
+## batch corrected data for HVGs
+data <- assay(sce.corr.cardiac)[hvgs,]
+
+## diffusion maps
+pca <- prcomp(t(data))
+set.seed(123)
+diffMap <- DiffusionMap(pca$x[,1:50], sigma="local", distance="euclidean")
+# qplot(y = eigenvalues(diffMap)) + theme_minimal() + labs(x = 'Diffusion component (DC)', y = 'Eigenvalue')
+
+dm <- as.data.frame(diffMap@eigenvectors[,1:5])
+row.names(dm) <- colnames(data)
+
+## diffusion pseudotime
+dpt <- DPT(diffMap)
+
+plots <- list()
+plots[[1]] <- ggplot(dm, aes(DC1, DC2, colour=sce.cardiac$clusterAnn)) + geom_point() + scale_color_manual(values=cols) + labs(colour="pop") + th
+plots[[2]] <- plot(dpt, col_by="branch", root=2, path=c(1,3)) + th
+ggarrange(plotlist = plots, ncol=2, nrow = 1)
+```
+
+And using the diffusion pseudotime we can define branches. The turquoise subclusters (Me7 and Me8) form one branch, and so does the green cluster (Me5); the yellow, orange and blue clusters are all merged into the third branch.
+
+This suggests that the two progenitor types converge to a common differentiation trajectory to give rise to cardiomyocytes.
+
+#### Me5 to cardiomyocyte trajectory
+
+To investigate in more detail the differentiation dynamics of the Me5 progenitors to mature cardiomyocytes, we now compute the diffusion map excluding the turquoise cells, which comprise a distinct branch.
+
+Once again, cells are arranged in a triangular structure, with the progenitors from Me5 and the mature cardiomyocytes at opposite ends; the yellow cluster segregates towards the other tip.
+
+```{r me5, fig.width=10}
+## exclude Me7 and Me8
+sce.Me5 <- sce[,sce$clusterAnn %in% paste0("Me", c(3:6))]
+sce.corr.Me5 <- sce.corr[,colnames(sce.Me5)]
+
+## diffusion map
+data <- assay(sce.corr.Me5)[hvgs,]
+pca <- prcomp(t(data))
+set.seed(123)
+diffMap.me5 <- DiffusionMap(pca$x[,1:50], sigma="local", distance="euclidean")
+# qplot(y = eigenvalues(diffMap.me5)) + theme_minimal() + labs(x = 'Diffusion component (DC)', y = 'Eigenvalue')
+
+dm.me5 <- as.data.frame(diffMap.me5@eigenvectors[,1:5])
+row.names(dm.me5) <- colnames(data)
+
+## diffusion pseudotime
+dpt.me5 <- DPT(diffMap.me5)
+
+plots <- list()
+plots[[1]] <- ggplot(dm.me5, aes(DC1, DC2, colour=sce.Me5$clusterAnn)) + geom_point() + scale_color_manual(values=cols) + labs(colour="pop") + th
+plots[[2]] <- plot(dpt.me5, col_by="branch", root=2, path=c(1,3)) + th
+ggarrange(plotlist = plots, ncol=2, nrow = 1)
+```
+
+And defining branches based on diffusion pseudotime separates the cardiomyocytes from the yellow cluster and the orange + green progenitors. 
+
+The cells from branch 1 (orange + green) can be further split with two small subclusters at the tip branching out. In the third diffusion component is evident that the cells in purple differentiate towards red, which in turn link to the turquoise branch of cardiomyocytes. But the cells in the blue branch deviate in a different trajectory, that doesn't progress towards cardiomyocytes.
+
+```{r branch2, fig.width=10}
+plots <- list()
+plots[[1]] <- plot(dpt.me5, col_by="branch", root=2, path=c(1,1), divide=1, dcs=c(1,2)) + th
+plots[[2]] <- plot(dpt.me5, col_by="branch", root=2, path=c(1,3), divide=1, dcs=c(1,3)) + th
+ggarrange(plotlist = plots, ncol = 2, nrow = 1)
+```
+
+The cells that deviate from the trajectory towards cardiomyocytes (blue branch) express higher levels of several keratins and *Hoxb6*.
+
+```{r branch_de}
+## get cells in the three branches of of the orange+green clusters
+branch1.a <- row.names(dpt.me5@branch)[which(dpt.me5@branch[,2] == 5)]
+branch1.b <- row.names(dpt.me5@branch)[which(dpt.me5@branch[,2] == 4)]
+branch1.c <- row.names(dpt.me5@branch)[which(dpt.me5@branch[,2] == 6)] ## away from Me3
+
+## get cells in branches 4:6 and define branches as clusters
+sce.branched <- sce[,c(branch1.a, branch1.b, branch1.c)]
+clst <- rep(c("A","B","C"), c(length(branch1.a), length(branch1.b), length(branch1.c)))
+names(clst) <- c(branch1.a, branch1.b, branch1.c)
+stopifnot(identical(colnames(sce.branched), names(clst)))
+
+## find genes expressed higher in the branch that doesn't go to Me3
+keep <- rowMeans(logcounts(sce.branched)) > 0.1
+de <- findMarkers(sce.branched, clst, block=sce.branched$batch, direction="up", subset.row=keep, pval.type="all")
+
+## plot the top DE genes
+tmp <- logcounts(sce.branched)[row.names(de[[3]])[1:20],]
+tmp <- t(apply(tmp, 1, function(x) (x-mean(x))/sd(x) )) # z-score 
+row.names(tmp) <- rowData(sce.cardiac)[row.names(tmp),]$gene
+
+## clusters (branches) to colours
+c <- c("indianred1", "plum3", "steelblue3")
+names(c) <- c("A","B","C")
+
+heatmap.2(tmp, trace="none", ColSideColors = c[clst], col=colorRampPalette(colors = c("steelblue","white","indianred")), key.xlab="z-score")
+```
+
+#### Me7/8 to cardiomyocyte trajectory
+
+Now do the same to define the alternative trajectory from the turquoise progenitors towards cardiomyocytes.
+
+Again, cells are arranged in a triangular structure, with the Me7-8 progenitors and the cardiomyocytes on opposite ends; and in this case, the cells from the orange cluster are in the other tip. 
+
+```{r me7, fig.width=10}
+## exclude Me5
+sce.Me7 <- sce[,sce$clusterAnn %in% paste0("Me", c(3:4,6:8))]
+sce.corr.Me7 <- sce.corr[,colnames(sce.Me7)]
+
+## diffusion map
+data <- assay(sce.corr.Me7)[hvgs,]
+pca <- prcomp(t(data))
+
+set.seed(123)
+diffMap.me7 <- DiffusionMap(pca$x[,1:50], sigma="local", distance="euclidean")
+# qplot(y = eigenvalues(diffMap.me7)) + theme_minimal() + labs(x = 'Diffusion component (DC)', y = 'Eigenvalue')
+
+dm.me7 <- as.data.frame(diffMap.me7@eigenvectors[,1:5])
+row.names(dm.me7) <- colnames(data)
+
+## diffusion pseudotime
+dpt.me7 <- DPT(diffMap.me7)
+
+plots <- list()
+plots[[1]] <- ggplot(dm.me7, aes(DC1, DC2, colour=sce.Me7$clusterAnn)) + geom_point() + scale_color_manual(values=cols) + labs(colour="pop") + th
+plots[[2]] <- plot(dpt.me7, col_by="branch", root=1, path=c(2,3)) + th
+ggarrange(plotlist = plots, ncol=2, nrow = 1)
+```
+
+Consistently, there is a branching point that separates the most distinct orange cells; but some orange cells are part of the branch containing the turquoise and yellow progenitors.
+
+Further splitting branch 2, which contains the turquoise progenitors, also separates a small number of cells at the tip into two branches, suggesting further heterogeneity.
+
+```{r branch2_me7, fig.width=10}
+plots <- list()
+plots[[1]] <- plot(dpt.me7, col_by="branch", root=1, path=c(2,3), divide=2, dcs=c(1,2)) + th
+plots[[2]] <- plot(dpt.me7, col_by="branch", root=1, path=c(2,3), divide=2, dcs=c(1,4)) + th
+ggarrange(plotlist = plots, ncol = 2, nrow = 1)
+```
+
+#### Conclusions
+
+All together, we can identify two different trajectories leading to mature cardiomyocytes:
+
+- A path starting in the green cells (Me5), that goes through the orange cluster (Me4).
+    - The cells from the yellow cluster (Me6) form a different branch from this path.
+    - A small number of cells at the tip of Me5 branch out towards a different trajectory, away from cardiomyocytes.
+- Another path starting in the turquoise cells from Me7 and Me8, that goes through the yellow (Me6) and some cells from the orange (Me4) clusters.
+
+```{r save}
+saveRDS(diffMap, paste0(dir, "results/diffusionMap_cardiacMesoderm.Rds"))
+saveRDS(diffMap.me5, paste0(dir, "results/diffusionMap_Me5.Rds"))
+saveRDS(diffMap.me7, paste0(dir, "results/diffusionMap_Me7.Rds"))
+
+saveRDS(dpt, paste0(dir, "results/diffusionPseudotime_cardiacMesoderm.Rds"))
+saveRDS(dpt.me5, paste0(dir, "results/diffusionPseudotime_Me5.Rds"))
+saveRDS(dpt.me7, paste0(dir, "results/diffusionPseudotime_Me7.Rds"))
+```
+
+
+
+```{r info}
+sessionInfo()
+```
+
