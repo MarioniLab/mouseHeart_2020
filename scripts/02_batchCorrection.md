@@ -1,6 +1,6 @@
 ---
 title: "<span style='font-size: 28px'>Single-cell RNAseq of mouse heart development</style>"
-date: '09 November, 2019'
+date: '30 November, 2019'
 output:
   html_document:
     keep_md: true
@@ -42,7 +42,7 @@ umap$batch <- sce$batch
 ## randomise order per batch
 tmp <- umap[sample(row.names(umap), nrow(umap), replace = FALSE),]
 plot(tmp$x, tmp$y, pch=16, cex=0.75, col=tmp$batch, xlab="tSNE-dim1", ylab="tSNE-dim2", bty="l")
-legend("topright", legend = levels(tmp$batch), col=1:7, pch=16, cex=0.85)
+legend("topright", legend = levels(tmp$batch), col=1:7, pch=16, cex=0.75)
 ```
 
 ![](02_batchCorrection_files/figure-html/umap-1.png)<!-- -->
@@ -102,22 +102,27 @@ Finally, we visualise the corrected data.
 
 ```r
 ## visualise corrected data, which is already cosine normalised
-set.seed(837)
-sce.corr <- runUMAP(sce.corr, subset_row = hvgs, exprs_values = "reconstructed")
+set.seed(8183)
+sce.corr <- runUMAP(sce.corr, subset_row = hvgs, exprs_values = "reconstructed", n_neighbors=50, min_dist = 0.1)
 
 umap <- as.data.frame(reducedDim(sce.corr, "UMAP"))
 colnames(umap) <- c("x", "y")
-write.table(umap, paste0(dir,"results/umapCoords_corrected.tab"), quote=FALSE, sep="\t")
 
 ## colour by batch
 umap$batch <- sce$batch
 ## randomise order per batch
 tmp <- umap[sample(row.names(umap), nrow(umap), replace = FALSE),]
-plot(tmp$x, tmp$y, pch=16, cex=0.75, col=tmp$batch, xlab="UMAP - dim1", ylab="UMAP - dim2", bty="l")
-legend("topright", legend = levels(tmp$batch), col=1:7, pch=16, cex=0.85)
+plot(tmp$x, -1*tmp$y, pch=16, cex=0.75, col=tmp$batch, xlab="UMAP - dim1", ylab="UMAP - dim2", bty="l")
+legend("bottomright", legend = levels(tmp$batch), col=1:7, pch=16, cex=0.75)
 ```
 
 ![](02_batchCorrection_files/figure-html/umap_corrected-1.png)<!-- -->
+
+```r
+## change y-coords for better visualisation
+umap$y <- -1*umap$y
+write.table(umap, paste0(dir,"results/umapCoords_corrected.tab"), quote=FALSE, sep="\t")
+```
 
 Cells from all batches are now well mixed and the clusters should reflect different biological populations.
 
