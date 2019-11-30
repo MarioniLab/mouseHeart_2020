@@ -1,6 +1,6 @@
 ---
 title: "<span style='font-size: 28px'>Single-cell RNAseq of mouse heart development</style>"
-date: '12 November, 2019'
+date: '30 November, 2019'
 output:
   html_document:
     keep_md: true
@@ -160,7 +160,7 @@ sce$clusterCol <- cols[sce$clusterAnn]
 
 order <- sample(1:ncol(sce), ncol(sce), replace = FALSE)
 plot(reducedDim(sce)$x[order], reducedDim(sce)$y[order], pch=16, col=sce$clusterCol[order], bty="l", xlab="UMAP dim1", ylab="UMAP dim2")
-legend("topright", legend = ann[order(ann)], col=cols[ann[order(ann)]], pch=16, cex=0.75)
+legend("bottomright", legend = ann[order(ann)], col=cols[ann[order(ann)]], pch=16, cex=0.5)
 ```
 
 ![](04_clusterAnnotation_files/figure-html/colour_umap-1.png)<!-- -->

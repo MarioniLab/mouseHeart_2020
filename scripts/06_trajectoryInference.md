@@ -1,6 +1,6 @@
 ---
 title: "<span style='font-size: 28px'>Single-cell RNAseq of mouse heart development</style>"
-date: '27 November, 2019'
+date: '30 November, 2019'
 output:
   html_document:
     keep_md: true
@@ -38,12 +38,12 @@ sce <- readRDS(paste0(dir, "data/sce_goodQual.NORM.clusters.Rds"))
 
 plot(reducedDim(sce)$x, reducedDim(sce)$y, pch=16, col=sce$clusterCol, xlab="", ylab="", axes=FALSE)
 box(bty="l")
-legend("topright", legend = names(cols), col=cols, cex=0.75, pch=16)
-text(7, 14, labels = "ectoderm", col="firebrick", cex=0.75, font=2)
-text(9, -3, labels = "endoderm", col="steelblue4", cex=0.75, font=2)
-text(-3.5, 5, labels = "cardiac mesoderm", col="darkolivegreen", cex=0.75, font=2)
-text(-9, 8, labels = "endothelium", col="wheat3", cex=0.75, font=2)
-text(6, 1.5, labels = "blood", col="burlywood3", cex=0.75, font=2)
+legend("bottomright", legend = names(cols), col=cols, cex=0.5, pch=16)
+text(4, 0, labels = "ectoderm", col="firebrick", cex=0.75, font=2)
+text(11.5, 3, labels = "endoderm", col="steelblue4", cex=0.75, font=2)
+text(-7, 4, labels = "cardiac\nmesoderm", col="darkolivegreen", cex=0.75, font=2)
+text(-4, 7.5, labels = "endothelium", col="wheat3", cex=0.75, font=2)
+text(-5, 11, labels = "blood", col="burlywood3", cex=0.75, font=2)
 ```
 
 ![](06_trajectoryInference_files/figure-html/clusters-1.png)<!-- -->

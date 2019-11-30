@@ -157,7 +157,7 @@ sce$clusterCol <- cols[sce$clusterAnn]
 
 order <- sample(1:ncol(sce), ncol(sce), replace = FALSE)
 plot(reducedDim(sce)$x[order], reducedDim(sce)$y[order], pch=16, col=sce$clusterCol[order], bty="l", xlab="UMAP dim1", ylab="UMAP dim2")
-legend("topright", legend = ann[order(ann)], col=cols[ann[order(ann)]], pch=16, cex=0.75)
+legend("bottomright", legend = ann[order(ann)], col=cols[ann[order(ann)]], pch=16, cex=0.5)
 ```
 
 ```{r save}
