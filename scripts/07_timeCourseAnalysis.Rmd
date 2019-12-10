@@ -1,0 +1,546 @@
+---
+title: "<span style='font-size: 28px'>Single-cell RNAseq of mouse heart development</style>"
+date: '`r format(Sys.time(), "%d %B, %Y")`'
+output:
+  html_document:
+    keep_md: true
+    fig_width: 5
+    fig_height: 5
+    fig_caption: yes
+    code_folding: hide
+    toc: false
+    toc_float: 
+      collapsed: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(scran)
+library(edgeR)
+library(RColorBrewer)
+library(ggplot2)
+library(ggpubr)
+library(topGO)
+library(UpSetR)
+
+# library(ComplexHeatmap)
+
+dir <- "/Users/ibarra01/OneDrive - CRUK Cambridge Institute/github/mouseHeart_earlyDev_atlas/"
+
+palette(brewer.pal(n=12, "Set3"))
+
+th <- theme_bw() + theme(axis.text.x = element_text(size=12), axis.title.x = element_text(size=12), axis.text.y = element_text(size=12), axis.title.y = element_text(size=12), axis.ticks.x = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"), panel.border = element_blank(), plot.title = element_text(face="bold", hjust = 0.5))
+
+cols <- c(Ec1 = "#ec6646", Ec2 = "#af4424", En1 = "#3c537c", En2 = "#768ba5",
+          Me1 = "#bf9a77", Me2 = "#debc95", Me3 = "#556dad", Me4 = "#f28a31", 
+          Me5 = "#729f3c", Me6 = "#fbba14", Me7 = "#5fa398", Me8 = "#9FD3C5")
+```
+
+### Time-course analysis
+
+We have characterised the dataset and the different cell populations present. Samples were collected across several stages of development, so let's now analyse the temporal dynamics of the different cell types.
+
+Cells were collected just before the formation of the cardiac crescent - *stage -1* -, at four different points - *stages 0-3* - from the earliest cardiac crescent to just before the transition to a linear heart tube (LHT) structure, and at the LHT stage. The number of cells for each stage is variable.
+
+```{r loadData}
+## normalised data, with cluster annotation
+sce <- readRDS(paste0(dir, "data/sce_goodQual.NORM.clusters.Rds"))
+table(colData(sce)$stage)
+```
+
+#### Cell proportions over development
+
+First, we analyse the time of emergence of each subpopulation and their progression across time.
+
+The non-mesodermal clusters are relatively stable throughout the six stages profiled. 
+
+- The ectoderm is almost absent from stage -1, but this is down to how the dissections were done for this stage. Both ectodermal clusters are more prevalent in stage 0 compared to later stages, perhaps due to a smaller cardiac crescent region. Cluster Ec2 only has `r sum(sce$clusterAnn=="Ec2")` cells, and thus estimating its contribution per stage is quite unstable, more susceptible to sampling biases.
+- The two endodermal clusters show pretty stable contributions across development, with coordinated behaviour from both clusters.
+- The blood (Me1) and endothelial (Me2) clusters are also quite stable. As with Ec2, the very small number of cells in each cluster (`r sum(sce$clusterAnn=="Me1")` and `r sum(sce$clusterAnn=="Me2")` respectively) make estimating their contributions precisely quite difficult.
+
+```{r nonCardiac, fig.width=4, fig.height=5}
+props <- as.matrix(table(sce$clusterAnn, sce$stage))
+props <- t(t(props)/colSums(props))*100
+
+par(mfrow=c(3:2), mar=c(2,2,2,2))
+for(i in 1:6){
+  barplot(props[i,], col=cols[i], main=row.names(props)[i])
+}
+```
+
+For the cardiac mesoderm clusters:
+
+- Me8, one of the most undifferentiated populations of progenitor cells, is quite specific to stage -1, and then decreases sharply.
+- Me7, a progenitor subpopulation, is quite stable across time, and already present abundantly at stage -1. 
+- Me6, which links Me7 to the more mature cardiomyocytes of Me3, arises later than Me7, between stages 0 and 1. After, it seems to increase gradually. However, there are only `r sum(sce$clusterAnn=="Me6")` cells in this cluster, so these proportions might not be very accurate.
+
+
+- The other differentiation trajectory, starting with progenitor cluster Me5 emerges a little later, and seems to start decreasing after stage 2.
+- Me4, which links Me5 to the cardiomyocytes of Me3 shows a similar behaviour.
+
+
+- Finally, mature cardiomyocytes in Me3 appear at stage 0 and increase with time.
+
+```{r cardiac, fig.width=4, fig.height=6.5}
+layout(matrix(c(0,0,1,1,2,2,3,3,4,4,5,5,0,6,6,0), ncol = 4, byrow = TRUE))
+par(mar=c(2,2,2,2))
+for(i in c(12,9,11,8,10,7)){
+  barplot(props[i,], col=cols[i], main=row.names(props)[i])
+}
+```
+
+We can also use the different replicates (batches) to estimate the mean and standard deviation of the proportions at each stage. We exclude stage -1 from this analysis because it was captured in only one batch. All together, the observations above hold.
+
+```{r per_batch, fig.width=7, fig.height=4.5}
+## use the differen batches as replicates, to get estimates with mean +- se
+props <- list()
+for(i in unique(sce$batch)){
+  props[[i]] <- as.matrix(table(sce[,sce$batch == i]$clusterAnn, sce[,sce$batch == i]$stage))
+  props[[i]] <- t(t(props[[i]])/colSums(props[[i]]))*100
+}
+
+## means (exclude stage -1 which has no replicates)
+props.mean <- matrix(ncol = 5, nrow = length(cols))
+colnames(props.mean) <- paste0("stage_",c(0:3,"LHT"))
+row.names(props.mean) <- names(cols)
+props.mean[,'stage_0'] <- rowMeans(cbind(props[[3]][,1], props[[7]][,2]))
+props.mean[,'stage_1'] <- rowMeans(cbind(props[[3]][,2], props[[4]][,1], props[[5]][,1], props[[6]][,1]))
+props.mean[,'stage_2'] <- rowMeans(cbind(c(props[[2]][1:5,1],0,props[[2]][6:11,1]), props[[4]][,2], props[[5]][,2], props[[6]][,2]))
+props.mean[,'stage_3'] <- rowMeans(cbind(props[[4]][,3], props[[5]][,3]))
+props.mean[,'stage_LHT'] <- rowMeans(cbind(c(props[[1]][1:2,1],0,0,0,props[[1]][3:5,1],0,props[[1]][6:8,1]), c(props[[2]][1:5,2],0,props[[2]][6:11,2])))
+
+## sd (exclude stage -1 which has no replicates)
+props.sd <- matrix(ncol = 5, nrow = length(cols))
+colnames(props.sd) <- paste0("stage_",c(0:3,"LHT"))
+row.names(props.sd) <- names(cols)
+props.sd[,'stage_0'] <- rowSds(cbind(props[[3]][,1], props[[7]][,2]))
+props.sd[,'stage_1'] <- rowSds(cbind(props[[3]][,2], props[[4]][,1], props[[5]][,1], props[[6]][,1]))
+props.sd[,'stage_2'] <- rowSds(cbind(c(props[[2]][1:5,1],0,props[[2]][6:11,1]), props[[4]][,2], props[[5]][,2], props[[6]][,2]))
+props.sd[,'stage_3'] <- rowSds(cbind(props[[4]][,3], props[[5]][,3]))
+props.sd[,'stage_LHT'] <- rowSds(cbind(c(props[[1]][1:2,1],0,0,0,props[[1]][3:5,1],0,props[[1]][6:8,1]), c(props[[2]][1:5,2],0,props[[2]][6:11,2])))
+
+
+df <- data.frame(pop = rep(row.names(props.mean),5), stage = rep(substr(colnames(props.mean),7,9), each=nrow(props.mean)), mean = c(props.mean), sd = c(props.sd))
+
+ggplot(df, aes(x=stage, y=mean, group=pop, color=pop)) + geom_line() + geom_pointrange(aes(ymin=mean-sd, ymax=mean+sd)) + scale_color_manual(values=cols) + facet_wrap(. ~ pop, ncol=4) + ylab("% of cells in cluster") + th + theme(legend.position = "none")
+```
+
+These dynamics can also be observed by plotting the UMAP representation, stratified by stage.
+
+```{r umap, fig.width=8, fig.height=5}
+umap <- reducedDim(sce)
+umap$stage <- colData(sce)$stage
+umap$cluster <- sce$clusterAnn
+umap$col <- sce$clusterCol
+
+stages <- c(-1:3,"LHT")
+par(mfrow=c(2,3), mar=c(2,2,2,2))
+for(stage in stages){
+  plot(umap[umap$stage==stage,]$x, umap[umap$stage==stage,]$y, col=umap[umap$stage==stage,]$col, pch=16, ylim=c(-6.5,11), xlim=c(-10,17), main=paste("stage",stage), xlab="", ylab="", axes=FALSE)
+  box(bty="l")
+}
+```
+
+#### Gene expression across development
+
+Most cell types are present across all six stages profiled. And cells from different stages are generally well mixed in the UMAP representation.
+
+```{r stage}
+order <- sample(1:nrow(umap), nrow(umap), replace = FALSE)
+plot(umap[order,]$x, umap[order,]$y, pch=16, cex=0.75, col=as.factor(umap[order,]$stage), xlab="", ylab="", axes=FALSE)
+box(bty="l")
+legend("bottomright", legend = levels(as.factor(umap$stage)), pch=16, col=1:6, cex=0.75)
+```
+
+This suggests that the transcriptional profiles are determined by the cell type, and their progression along the developmental program (i.e. from progenitors to cardiomyocytes), and not by the particular stage of the embryo.
+
+Nonetheless, we can test whether there are any genes differentially expressed along development. We test all clusters except Ec2, Me1 and Me2, which have very few cells per stage, per cluster. We also exclude Me8, since the vast majority of cells are from stage -1. For all others, we test for differences in expression between stages, while controlling for batch.
+
+```{r En1, warning=FALSE, message=FALSE}
+resAdj <- list()
+clust <- "En1"
+tmp <- sce[,sce$clusterAnn == clust]
+
+## filter lowly expressed genes
+keep <- rowMeans(logcounts(tmp)) > 1
+
+## convert sce object to a DGElist to use with edgeR
+y <- convertTo(tmp[keep,], type="edgeR")
+y$samples$batch <- droplevels(y$samples$batch)
+# table(y$samples$stage)
+# -1   0   1   2   3 LHT 
+# 47  33 126  99  77  23
+
+design <- model.matrix(~0+y$samples$batch+y$samples$stage)
+colnames(design) <- substr(colnames(design), 16, 30)
+colnames(design)[-c(1:7)] <- paste0("stage", colnames(design)[-c(1:7)])
+
+y <- estimateDisp(y, design)
+fit <- glmQLFit(y, design, robust=TRUE)
+test <- glmQLFTest(fit, 8:12)
+resAdj[[clust]] <- as.data.frame(topTags(test, n=nrow(y$counts)))
+resAdj[[clust]]$logFC <- apply(resAdj[[clust]][,3:7], 1, function(x) x[which.max(abs(x))])
+# summary(resAdj[[clust]]$FDR<0.05 & abs(resAdj[[clust]]$logFC) > 1)
+
+# i=1
+# boxplot(logcounts(tmp)[row.names(resAdj[[clust]])[i],]~tmp$stage, main=resAdj[[clust]][i,1]); i <- i+1
+
+### test GO enrichments
+universe <- row.names(y$counts)
+all <- as.factor(as.numeric(universe %in% row.names(resAdj[[clust]][resAdj[[clust]]$FDR < 0.05 & abs(resAdj[[clust]]$logFC) >1,])))
+names(all) <- universe
+
+go.res <- list()
+go <- new("topGOdata", ontology="BP", allGenes = all, nodeSize=5, annot=annFUN.org, mapping="org.Mm.eg.db", ID = "ensembl")
+go.test <- runTest(go, algorithm = "classic", statistic = "Fisher" )
+go.res[[clust]] <- GenTable(go, Fisher.classic = go.test, topNodes = length(score(go.test)))
+go.res[[clust]]$Fisher.classic.adj <- p.adjust(go.res[[clust]]$Fisher.classic, "fdr")
+```
+
+
+```{r En2, warning=FALSE, message=FALSE}
+clust <- "En2"
+tmp <- sce[,sce$clusterAnn == clust]
+
+## filter lowly expressed genes
+keep <- rowMeans(logcounts(tmp)) > 1
+
+## convert sce object to a DGElist to use with edgeR
+y <- convertTo(tmp[keep,], type="edgeR")
+y$samples$batch <- droplevels(y$samples$batch)
+# table(y$samples$stage)
+# -1   0   1   2   3 LHT 
+# 22  28  89  68  43  10
+
+design <- model.matrix(~0+y$samples$batch+y$samples$stage)
+colnames(design) <- substr(colnames(design), 16, 30)
+colnames(design)[-c(1:7)] <- paste0("stage", colnames(design)[-c(1:7)])
+
+y <- estimateDisp(y, design)
+fit <- glmQLFit(y, design, robust=TRUE)
+test <- glmQLFTest(fit, 8:12)
+resAdj[[clust]] <- as.data.frame(topTags(test, n=nrow(y$counts)))
+resAdj[[clust]]$logFC <- apply(resAdj[[clust]][,3:7], 1, function(x) x[which.max(abs(x))])
+# summary(resAdj[[clust]]$FDR<0.05 & abs(resAdj[[clust]]$logFC) > 1)
+
+# i=1
+# boxplot(logcounts(tmp)[row.names(resAdj[[clust]])[i],]~tmp$stage, main=resAdj[[clust]][i,1]); i <- i+1
+
+### test GO enrichments
+all <- as.factor(as.numeric(universe %in% row.names(resAdj[[clust]][resAdj[[clust]]$FDR < 0.05 & abs(resAdj[[clust]]$logFC) >1,])))
+names(all) <- universe
+
+go <- new("topGOdata", ontology="BP", allGenes = all, nodeSize=5, annot=annFUN.org, mapping="org.Mm.eg.db", ID = "ensembl")
+go.test <- runTest(go, algorithm = "classic", statistic = "Fisher" )
+go.res[[clust]] <- GenTable(go, Fisher.classic = go.test, topNodes = length(score(go.test)))
+go.res[[clust]]$Fisher.classic.adj <- p.adjust(go.res[[clust]]$Fisher.classic, "fdr")
+```
+
+
+```{r Ec1, warning=FALSE, message=FALSE}
+clust <- "Ec1"
+tmp <- sce[,sce$clusterAnn == clust]
+
+## filter lowly expressed genes
+keep <- rowMeans(logcounts(tmp)) > 1
+
+## convert sce object to a DGElist to use with edgeR
+y <- convertTo(tmp[keep,], type="edgeR")
+y$samples$batch <- droplevels(y$samples$batch)
+# table(y$samples$stage)
+# -1   0   1   2   3 LHT 
+#  2  66  31  51  31  13 
+
+## remove stage -1
+y$counts <- y$counts[,-which(y$samples$stage==-1)]
+y$samples <- y$samples[-which(y$samples$stage==-1),]
+stopifnot(identical(row.names(y$samples), colnames(y$counts)))
+
+design <- model.matrix(~0+y$samples$batch+y$samples$stage)
+colnames(design) <- substr(colnames(design), 16, 30)
+colnames(design)[-c(1:6)] <- paste0("stage", colnames(design)[-c(1:6)])
+
+y <- estimateDisp(y, design)
+fit <- glmQLFit(y, design, robust=TRUE)
+test <- glmQLFTest(fit, 7:10)
+resAdj[[clust]] <- as.data.frame(topTags(test, n=nrow(y$counts)))
+resAdj[[clust]]$logFC <- apply(resAdj[[clust]][,3:6], 1, function(x) x[which.max(abs(x))])
+# summary(resAdj[[clust]]$FDR<0.05 & abs(resAdj[[clust]]$logFC) > 1)
+
+# i=1
+# boxplot(logcounts(tmp)[row.names(resAdj[[clust]])[i],]~tmp$stage, main=resAdj[[clust]][i,1]); i <- i+1
+
+### test GO enrichments
+all <- as.factor(as.numeric(universe %in% row.names(resAdj[[clust]][resAdj[[clust]]$FDR < 0.05 & abs(resAdj[[clust]]$logFC) >1,])))
+names(all) <- universe
+
+go <- new("topGOdata", ontology="BP", allGenes = all, nodeSize=5, annot=annFUN.org, mapping="org.Mm.eg.db", ID = "ensembl")
+go.test <- runTest(go, algorithm = "classic", statistic = "Fisher" )
+go.res[[clust]] <- GenTable(go, Fisher.classic = go.test, topNodes = length(score(go.test)))
+go.res[[clust]]$Fisher.classic.adj <- p.adjust(go.res[[clust]]$Fisher.classic, "fdr")
+```
+
+
+```{r Me3, warning=FALSE, message=FALSE}
+clust <- "Me3"
+tmp <- sce[,sce$clusterAnn == clust]
+
+## filter lowly expressed genes
+keep <- rowMeans(logcounts(tmp)) > 1
+
+## convert sce object to a DGElist to use with edgeR
+y <- convertTo(tmp[keep,], type="edgeR")
+# table(y$samples$stage)
+# -1   0   1   2   3 LHT 
+#  3  83 261 201  98  67 
+
+## remove stage -1
+y$counts <- y$counts[,-which(y$samples$stage==-1)]
+y$samples <- y$samples[-which(y$samples$stage==-1),]
+stopifnot(identical(row.names(y$samples), colnames(y$counts)))
+
+design <- model.matrix(~0+y$samples$batch+y$samples$stage)
+colnames(design) <- substr(colnames(design), 16, 30)
+colnames(design)[-c(1:7)] <- paste0("stage", colnames(design)[-c(1:7)])
+
+y <- estimateDisp(y, design)
+fit <- glmQLFit(y, design, robust=TRUE)
+test <- glmQLFTest(fit, 8:11)
+resAdj[[clust]] <- as.data.frame(topTags(test, n=nrow(y$counts)))
+resAdj[[clust]]$logFC <- apply(resAdj[[clust]][,3:6], 1, function(x) x[which.max(abs(x))])
+# summary(resAdj[[clust]]$FDR<0.05 & abs(resAdj[[clust]]$logFC) > 1)
+
+# i=1
+# boxplot(logcounts(tmp)[row.names(resAdj[[clust]])[i],]~tmp$stage, main=resAdj[[clust]][i,1]); i <- i+1
+
+### test GO enrichments
+all <- as.factor(as.numeric(universe %in% row.names(resAdj[[clust]][resAdj[[clust]]$FDR < 0.05 & abs(resAdj[[clust]]$logFC) >1,])))
+names(all) <- universe
+
+go <- new("topGOdata", ontology="BP", allGenes = all, nodeSize=5, annot=annFUN.org, mapping="org.Mm.eg.db", ID = "ensembl")
+go.test <- runTest(go, algorithm = "classic", statistic = "Fisher" )
+go.res[[clust]] <- GenTable(go, Fisher.classic = go.test, topNodes = length(score(go.test)))
+go.res[[clust]]$Fisher.classic.adj <- p.adjust(go.res[[clust]]$Fisher.classic, "fdr")
+```
+
+
+```{r Me4, warning=FALSE, message=FALSE}
+clust <- "Me4"
+tmp <- sce[,sce$clusterAnn == clust]
+
+## filter lowly expressed genes
+keep <- rowMeans(logcounts(tmp)) > 1
+
+## convert sce object to a DGElist to use with edgeR
+y <- convertTo(tmp[keep,], type="edgeR")
+y$samples$batch <- droplevels(y$samples$batch)
+# table(y$samples$stage)
+# -1   0   1   2   3 LHT 
+#  8  44  77  66  20   6 
+
+design <- model.matrix(~0+y$samples$batch+y$samples$stage)
+colnames(design) <- substr(colnames(design), 16, 30)
+colnames(design)[-c(1:7)] <- paste0("stage", colnames(design)[-c(1:7)])
+
+y <- estimateDisp(y, design)
+fit <- glmQLFit(y, design, robust=TRUE)
+test <- glmQLFTest(fit, 8:12)
+resAdj[[clust]] <- as.data.frame(topTags(test, n=nrow(y$counts)))
+resAdj[[clust]]$logFC <- apply(resAdj[[clust]][,3:7], 1, function(x) x[which.max(abs(x))])
+# summary(resAdj[[clust]]$FDR<0.05 & abs(resAdj[[clust]]$logFC) > 1)
+
+# i=1
+# boxplot(logcounts(tmp)[row.names(resAdj[[clust]])[i],]~tmp$stage, main=resAdj[[clust]][i,1]); i <- i+1
+
+### test GO enrichments
+all <- as.factor(as.numeric(universe %in% row.names(resAdj[[clust]][resAdj[[clust]]$FDR < 0.05 & abs(resAdj[[clust]]$logFC) >1,])))
+names(all) <- universe
+
+go <- new("topGOdata", ontology="BP", allGenes = all, nodeSize=5, annot=annFUN.org, mapping="org.Mm.eg.db", ID = "ensembl")
+go.test <- runTest(go, algorithm = "classic", statistic = "Fisher" )
+go.res[[clust]] <- GenTable(go, Fisher.classic = go.test, topNodes = length(score(go.test)))
+go.res[[clust]]$Fisher.classic.adj <- p.adjust(go.res[[clust]]$Fisher.classic, "fdr")
+```
+
+```{r Me5, warning=FALSE, message=FALSE}
+clust <- "Me5"
+tmp <- sce[,sce$clusterAnn == clust]
+
+## filter lowly expressed genes
+keep <- rowMeans(logcounts(tmp)) > 1
+
+## convert sce object to a DGElist to use with edgeR
+y <- convertTo(tmp[keep,], type="edgeR")
+y$samples$batch <- droplevels(y$samples$batch)
+# table(y$samples$stage)
+# -1   0   1   2   3 LHT 
+#  4  64  89 150  36  12 
+
+## remove stage -1
+y$counts <- y$counts[,-which(y$samples$stage==-1)]
+y$samples <- y$samples[-which(y$samples$stage==-1),]
+stopifnot(identical(row.names(y$samples), colnames(y$counts)))
+
+design <- model.matrix(~0+y$samples$batch+y$samples$stage)
+colnames(design) <- substr(colnames(design), 16, 30)
+colnames(design)[-c(1:6)] <- paste0("stage", colnames(design)[-c(1:6)])
+
+y <- estimateDisp(y, design)
+fit <- glmQLFit(y, design, robust=TRUE)
+test <- glmQLFTest(fit, 7:10)
+resAdj[[clust]] <- as.data.frame(topTags(test, n=nrow(y$counts)))
+resAdj[[clust]]$logFC <- apply(resAdj[[clust]][,3:6], 1, function(x) x[which.max(abs(x))])
+# summary(resAdj[[clust]]$FDR<0.05 & abs(resAdj[[clust]]$logFC) > 1)
+
+# i=1
+# boxplot(logcounts(tmp)[row.names(resAdj[[clust]])[i],]~tmp$stage, main=resAdj[[clust]][i,1]); i <- i+1
+
+### test GO enrichments
+all <- as.factor(as.numeric(universe %in% row.names(resAdj[[clust]][resAdj[[clust]]$FDR < 0.05 & abs(resAdj[[clust]]$logFC) >1,])))
+names(all) <- universe
+
+go <- new("topGOdata", ontology="BP", allGenes = all, nodeSize=5, annot=annFUN.org, mapping="org.Mm.eg.db", ID = "ensembl")
+go.test <- runTest(go, algorithm = "classic", statistic = "Fisher" )
+go.res[[clust]] <- GenTable(go, Fisher.classic = go.test, topNodes = length(score(go.test)))
+go.res[[clust]]$Fisher.classic.adj <- p.adjust(go.res[[clust]]$Fisher.classic, "fdr")
+```
+
+```{r Me6, warning=FALSE, message=FALSE}
+clust <- "Me6"
+tmp <- sce[,sce$clusterAnn == clust]
+
+## filter lowly expressed genes
+keep <- rowMeans(logcounts(tmp)) > 1
+
+## convert sce object to a DGElist to use with edgeR
+y <- convertTo(tmp[keep,], type="edgeR")
+y$samples$batch <- droplevels(y$samples$batch)
+# table(y$samples$stage)
+#  0   1   2   3 LHT 
+#  2  19  23  13   8
+
+## remove stage -1,0
+y$counts <- y$counts[,-which(y$samples$stage %in% c(-1,0))]
+y$samples <- y$samples[-which(y$samples$stage%in% c(-1,0)),]
+stopifnot(identical(row.names(y$samples), colnames(y$counts)))
+y$samples$batch <- droplevels(y$samples$batch)
+
+design <- model.matrix(~0+y$samples$batch+y$samples$stage)
+colnames(design) <- substr(colnames(design), 16, 30)
+colnames(design)[-c(1:6)] <- paste0("stage", colnames(design)[-c(1:6)])
+
+y <- estimateDisp(y, design)
+fit <- glmQLFit(y, design, robust=TRUE)
+test <- glmQLFTest(fit, 7:9)
+resAdj[[clust]] <- as.data.frame(topTags(test, n=nrow(y$counts)))
+resAdj[[clust]]$logFC <- apply(resAdj[[clust]][,3:5], 1, function(x) x[which.max(abs(x))])
+# summary(resAdj[[clust]]$FDR<0.05 & abs(resAdj[[clust]]$logFC) > 1)
+
+# i=1
+# boxplot(logcounts(tmp)[row.names(resAdj[[clust]])[i],]~tmp$stage, main=resAdj[[clust]][i,1]); i <- i+1
+
+### test GO enrichments
+all <- as.factor(as.numeric(universe %in% row.names(resAdj[[clust]][resAdj[[clust]]$FDR < 0.05 & abs(resAdj[[clust]]$logFC) >1,])))
+names(all) <- universe
+
+go <- new("topGOdata", ontology="BP", allGenes = all, nodeSize=5, annot=annFUN.org, mapping="org.Mm.eg.db", ID = "ensembl")
+go.test <- runTest(go, algorithm = "classic", statistic = "Fisher" )
+go.res[[clust]] <- GenTable(go, Fisher.classic = go.test, topNodes = length(score(go.test)))
+go.res[[clust]]$Fisher.classic.adj <- p.adjust(go.res[[clust]]$Fisher.classic, "fdr")
+```
+
+
+```{r Me7, warning=FALSE, message=FALSE}
+clust <- "Me7"
+tmp <- sce[,sce$clusterAnn == clust]
+
+## filter lowly expressed genes
+keep <- rowMeans(logcounts(tmp)) > 1
+
+## convert sce object to a DGElist to use with edgeR
+y <- convertTo(tmp[keep,], type="edgeR")
+y$samples$batch <- droplevels(y$samples$batch)
+# table(y$samples$stage)
+# -1   0   1   2   3 LHT 
+# 43  85 111 149  97  29
+
+design <- model.matrix(~0+y$samples$batch+y$samples$stage)
+colnames(design) <- substr(colnames(design), 16, 30)
+colnames(design)[-c(1:7)] <- paste0("stage", colnames(design)[-c(1:7)])
+
+y <- estimateDisp(y, design)
+fit <- glmQLFit(y, design, robust=TRUE)
+test <- glmQLFTest(fit, 8:12)
+resAdj[[clust]] <- as.data.frame(topTags(test, n=nrow(y$counts)))
+resAdj[[clust]]$logFC <- apply(resAdj[[clust]][,3:7], 1, function(x) x[which.max(abs(x))])
+# summary(resAdj[[clust]]$FDR<0.05 & abs(resAdj[[clust]]$logFC) > 1)
+
+# i=100
+# boxplot(logcounts(tmp)[row.names(resAdj[[clust]])[i],]~tmp$stage, main=resAdj[[clust]][i,1]); i <- i+1
+
+### test GO enrichments
+all <- as.factor(as.numeric(universe %in% row.names(resAdj[[clust]][resAdj[[clust]]$FDR < 0.05 & abs(resAdj[[clust]]$logFC) >1,])))
+names(all) <- universe
+
+go <- new("topGOdata", ontology="BP", allGenes = all, nodeSize=5, annot=annFUN.org, mapping="org.Mm.eg.db", ID = "ensembl")
+go.test <- runTest(go, algorithm = "classic", statistic = "Fisher" )
+go.res[[clust]] <- GenTable(go, Fisher.classic = go.test, topNodes = length(score(go.test)))
+go.res[[clust]]$Fisher.classic.adj <- p.adjust(go.res[[clust]]$Fisher.classic, "fdr")
+```
+
+A few hundred to a few thousand genes are significantly DE and show a fold-change of 2-fold or higher.
+
+```{r DEGs}
+unlist(lapply(resAdj, function(x) sum(x$FDR < 0.05 & abs(x$logFC) > 1)))
+```
+
+Most of these genes are significant in only one cluster, although nearly a fifth are identified in two different comparisons.
+
+```{r upsetDE, fig.width=10}
+DEgenes <- data.frame(gene=do.call('c', lapply(resAdj, function(x) x[x$FDR < 0.05 & abs(x$logFC) > 1,]$gene)))
+DEgenes$pop <- substr(row.names(DEgenes), 1, 3)
+DEgenes.mat <- matrix(nrow = length(unique(DEgenes$gene)), ncol = length(unique(DEgenes$pop)))
+row.names(DEgenes.mat) <- unique(DEgenes$gene)
+colnames(DEgenes.mat) <- unique(DEgenes$pop)
+for(clust in colnames(DEgenes.mat)){
+  DEgenes.mat[,clust] <- ifelse(row.names(DEgenes.mat) %in% DEgenes[DEgenes$pop == clust,1], 1, 0)
+}
+
+upset(as.data.frame(DEgenes.mat), nsets = 8)
+```
+
+The sets of differential genes are enriched for few GO terms, and these are more often shared between clusters.
+
+```{r upseGO}
+GOterms <- data.frame(GO=do.call('c', lapply(go.res, function(x) x[x$Fisher.classic.adj < 0.05,]$GO.ID)))
+GOterms$pop <- substr(row.names(GOterms), 1, 3)
+
+GOterms.mat <- matrix(nrow = length(unique(GOterms$GO)), ncol = length(unique(GOterms$pop)))
+row.names(GOterms.mat) <- unique(GOterms$GO)
+colnames(GOterms.mat) <- unique(GOterms$pop)
+for(clust in colnames(GOterms.mat)){
+  GOterms.mat[,clust] <- ifelse(row.names(GOterms.mat) %in% GOterms[GOterms$pop == clust,1], 1, 0)
+}
+upset(as.data.frame(GOterms.mat), nsets = 8)
+## large proportion of terms shared by all clusters
+## these relate to translation, biosynthetic/metabolic processes, ribosomal/ribonucleprotein terms; mithochondrial respiratory chain/ATP synthesis, oxidative phosphorylation
+```
+
+This suggests that, although the sets of genes are different between clusters, many tend to be involved in related processes. And these processes are related to translation and other core bio-metabolic pathways.
+
+```{r terms}
+go.res[['En1']][go.res[['En1']]$GO.ID %in% row.names(GOterms.mat[rowSums(GOterms.mat)>4,]),2]
+```
+
+This suggests that, over development, the metabolic activity and protein production rate is altered, but no other processes are significantly regulated.
+
+```{r save}
+saveRDS(resAdj, paste0(dir, "results/DE_stage_analysis.Rds"))
+saveRDS(go.res, paste0(dir, "results/DE_stage_analysis_GOenrichments.Rds"))
+```
+
+
+```{r info}
+sessionInfo()
+```
+
