@@ -1,6 +1,6 @@
 ---
 title: "<span style='font-size: 28px'>Single-cell RNAseq of mouse heart development</style>"
-date: '30 November, 2019'
+date: '18 December, 2019'
 output:
   html_document:
     keep_md: true
@@ -9,6 +9,7 @@ output:
     fig_caption: yes
     code_folding: hide
     toc: true
+    toc_depth: 4
     toc_float: 
       collapsed: false
 ---
@@ -36,7 +37,8 @@ We have clustered the cells into different cell types, from all three germ layer
 ## clustering results
 sce <- readRDS(paste0(dir, "data/sce_goodQual.NORM.clusters.Rds"))
 
-plot(reducedDim(sce)$x, reducedDim(sce)$y, pch=16, col=sce$clusterCol, xlab="", ylab="", axes=FALSE)
+o <- sample(1:ncol(sce), ncol(sce), replace = FALSE)
+plot(reducedDim(sce)$x[o], reducedDim(sce)$y[o], pch=16, col=sce$clusterCol[o], xlab="", ylab="", axes=FALSE)
 box(bty="l")
 legend("bottomright", legend = names(cols), col=cols, cex=0.5, pch=16)
 text(4, 0, labels = "ectoderm", col="firebrick", cex=0.75, font=2)
@@ -144,7 +146,20 @@ ggarrange(plotlist = plots, ncol=2, nrow = 1)
 
 ![](06_trajectoryInference_files/figure-html/me5-1.png)<!-- -->
 
-And defining branches based on diffusion pseudotime separates the cardiomyocytes from the yellow cluster and the orange + green progenitors. 
+And defining branches based on diffusion pseudotime separates the cardiomyocytes (Me3) from the yellow cluster (Me6) and the orange (Me4) + green (Me5) progenitors. 
+
+
+```r
+table(dpt.me5@branch[,1], sce.Me5[,row.names(dm.me5)]$clusterAnn)
+```
+
+```
+##    
+##     Me3 Me4 Me5 Me6
+##   1  39 200 355   2
+##   2 609   0   0   4
+##   3   7   0   0  44
+```
 
 The cells from branch 1 (orange + green) can be further split with two small subclusters at the tip branching out. In the third diffusion component is evident that the cells in purple differentiate towards red, which in turn link to the turquoise branch of cardiomyocytes. But the cells in the blue branch deviate in a different trajectory, that doesn't progress towards cardiomyocytes.
 
@@ -225,7 +240,20 @@ ggarrange(plotlist = plots, ncol=2, nrow = 1)
 
 ![](06_trajectoryInference_files/figure-html/me7-1.png)<!-- -->
 
-Consistently, there is a branching point that separates the most distinct orange cells; but some orange cells are part of the branch containing the turquoise and yellow progenitors.
+Consistently, there is a branching point that separates the most distinct orange cells (Me4); but some orange cells are part of the branch containing the turquoise (Me7-8) and yellow (Me6) progenitors.
+
+
+```r
+table(dpt.me7@branch[,1], sce.Me7[,row.names(dm.me7)]$clusterAnn)
+```
+
+```
+##    
+##     Me3 Me4 Me6 Me7 Me8
+##   1 602  35   0   0   0
+##   2  40  59  60 514 184
+##   3   0  90   0   0   0
+```
 
 Further splitting branch 2, which contains the turquoise progenitors, also separates a small number of cells at the tip into two branches, suggesting further heterogeneity.
 
@@ -291,6 +319,10 @@ ggarrange(plotlist = plots, ncol = 3, nrow = 1)
 
 Based on these cell orderings, we can identify genes that are expressed dynamically along the trajectories. For this, we follow the method used in *Ibarra-Soria, Wajid et al., Nat Cell Biol, 2018*.
 
+##### Me5 -> Me3 trajectory
+
+First, we look at the Me5 progenitors differentiating into cardiomyocytes.
+
 
 ```r
 ## Me5->Me3 trajectory
@@ -331,7 +363,138 @@ dynGenes_me5 <- deltaAIC_me5[deltaAIC_me5 < -300]
 # }
 ```
 
-We identify 726 genes dynamically expressed from the Me5 green progenitors down to cardiomyocytes.
+We identify 726 genes dynamically expressed along this trajectory. These can be clustered into five different profiles.
+
+
+```r
+curves_me5 <- t(sapply(names(dynGenes_me5), function(x){
+  df <- data.frame(diffPseudotime_me5, data[x,])
+  fit2 <- locfit(df[,2]~lp(df[,1], nn=smooth, deg=2), data=df)
+  return(predict(fit2, df[,1]))
+}))
+curvesStd_me5 <- t(apply(curves_me5, 1, function(x) x/max(x)))  # standarise
+
+# cluster the different profiles
+test <- cor(t(curvesStd_me5), method="spearman")
+test.dissim <- sqrt(0.5*((1-test)))
+test.dist <- as.dist(test.dissim)
+test.clust <- hclust(test.dist, method="average")
+
+clust.genes_me5 <- cutreeDynamic(test.clust,distM=as.matrix(test.dist), minClusterSize=50, method="hybrid", deepSplit = 1, verbose = 0)  # reducing the min cluster size doesn't split the tree further
+names(clust.genes_me5) <- row.names(curvesStd_me5)
+# table(clust.genes_me5)
+
+plots <- list()
+for(c in 1:max(clust.genes_me5)){
+  g <- names(clust.genes_me5[clust.genes_me5==c])
+  test <- curvesStd_me5[g,]
+  mean <- colMeans(test)
+  std <- apply(test, 2, sd)
+  df.sub <- data.frame(x=diffPseudotime_me5, ymin=mean-std, ymax=mean+std)
+  df.sub.avg <- data.frame(x=diffPseudotime_me5, y=mean)
+  plots[[c]] <- ggplot() +
+            geom_line(data=df.sub.avg, aes(x=x,y=y), colour="black" , size=1) +
+            geom_ribbon(data=df.sub, aes(x=x,ymin=ymin,ymax=ymax), alpha=0.2, fill="black") +
+            xlab(expression("pseudotime")) +
+            ylab(expression("standaradised expr")) +
+            ggtitle(paste0("Cluster ", c, " (n=", length(g), ")")) + ylim(0,1.2) + th
+}
+ggarrange(plotlist = plots, ncol = 3, nrow = 2)
+```
+
+![](06_trajectoryInference_files/figure-html/dynGenes_me6_clusters-1.png)<!-- -->
+
+And these genes should be enriched for processes involved in heart development. And this is the case:
+
+
+```r
+### test GO enrichments
+universe <- row.names(data)
+all <- as.factor(as.numeric(universe %in% names(dynGenes_me5)))
+names(all) <- universe
+
+go.me5 <- new("topGOdata", ontology="BP", allGenes = all, nodeSize=5, annot=annFUN.org, mapping="org.Mm.eg.db", ID = "ensembl")
+go.test.me5 <- runTest(go.me5, algorithm = "classic", statistic = "Fisher" )
+go.res.me5 <- GenTable(go.me5, Fisher.classic = go.test.me5, topNodes = length(score(go.test.me5)))
+go.res.me5$Fisher.classic.adj <- p.adjust(go.res.me5$Fisher.classic, "fdr")
+go.res.me5[is.na(go.res.me5$Fisher.classic.adj),]$Fisher.classic.adj <- go.res.me5[is.na(go.res.me5$Fisher.classic.adj),]$Fisher.classic
+go.res.me5[c(1,2,6,7,8,20,23,25,27,41,46,58,63,64,93,95),-6]
+```
+
+```
+##         GO.ID                               Term Annotated Significant Expected
+## 1  GO:0007507                  heart development       512         109    28.99
+## 2  GO:0061061       muscle structure development       530         110    30.01
+## 6  GO:0072359     circulatory system development       857         138    48.53
+## 7  GO:0014706 striated muscle tissue development       345          83    19.54
+## 8  GO:0048738  cardiac muscle tissue development       220          65    12.46
+## 20 GO:0030239                 myofibril assembly        60          30     3.40
+## 23 GO:0035051         cardiocyte differentiation       148          45     8.38
+## 25 GO:0006936                 muscle contraction       194          51    10.99
+## 27 GO:0003206      cardiac chamber morphogenesis       125          40     7.08
+## 41 GO:0030036    actin cytoskeleton organization       525          82    29.73
+## 46 GO:0045214             sarcomere organization        43          22     2.43
+## 58 GO:0008015                  blood circulation       309          55    17.50
+## 63 GO:0060485             mesenchyme development       214          43    12.12
+## 64 GO:0007155                      cell adhesion       765          94    43.32
+## 93 GO:0001944            vasculature development       549          70    31.09
+## 95 GO:0008283                 cell proliferation      1318         129    74.63
+##      Fisher.classic.adj
+## 1               < 1e-30
+## 2               < 1e-30
+## 6               < 1e-30
+## 7               < 1e-30
+## 8           5.84156e-26
+## 20 2.97543076923077e-19
+## 23            7.894e-19
+## 25 1.92964444444444e-18
+## 27          1.46039e-17
+## 41 3.48264705882353e-15
+## 46 1.82169230769231e-14
+## 58 2.78611764705882e-12
+## 63 2.81928571428571e-11
+## 64 4.43171929824561e-11
+## 93 8.16937209302326e-09
+## 95 1.25586363636364e-08
+```
+
+Considering significantly enriched terms (FDR < 1%) that have at least 20 dynamic genes, we look at the proportion of genes in each of the clusters defined above. Considering the terms where the proportion for one the clusters deviates considerably from the overall behaviour, we observe that terms with a much higher proportion of genes in cluster 1, which are increasing expression along pseudotime, include the development of cardiac and striated muscle, heart and circulatory system development. This makes sense since pseudotime increases as cells mature into cardiomyocytes. In contrast, terms enriched for cluster 2 genes, which are decreasing along pseudotime, include regulation of the cell cycle and proliferation. Terms with larger proportions of genes from cluster 3, which are downregulated in the middle of pseudotime progression, include several signalling pathways. 
+
+
+```r
+sig <- go.res.me5[go.res.me5$Fisher.classic.adj < 0.01 & go.res.me5$Significant >= 20,]
+
+props.me5 <- matrix(nrow = length(unique(clust.genes_me5)), ncol = nrow(sig))
+colnames(props.me5) <- sig$GO.ID
+row.names(props.me5) <- 1:5
+for(go in sig$GO.ID){
+  g <- intersect(genesInTerm(go.me5, go)[[1]], names(dynGenes_me5))
+  tmp <- as.matrix(table(clust.genes_me5[g])/length(g)*100)
+  props.me5[row.names(tmp),go] <- tmp
+}
+props.me5[is.na(props.me5)] <- 0
+
+outliers <- c()
+for(i in 1:5){
+  outliers <- c(outliers, which(props.me5[i,] < median(props.me5[i,])-mad(props.me5[i,]) | props.me5[i,] > median(props.me5[i,])+mad(props.me5[i,])))
+}
+
+tmp <- props.me5[,unique(outliers)]
+tmp <- tmp[,order(tmp[1,])]
+colnames(tmp) <- go.res.me5[match(colnames(tmp), go.res.me5$GO.ID),]$Term
+# colnames(tmp)
+sel <- c(1:4,17,23,26,38,53,63,70,81,85,88,89,105,113,114,115)
+
+par(mar=c(12,2,2,2))
+barplot(tmp[,sel], col=1:5, las=2, cex.names =0.75, xlim=c(0,25))
+legend("topright", legend = 1:5, col = 1:5, pch = 15, title = "cluster", cex=0.85)
+```
+
+![](06_trajectoryInference_files/figure-html/go_me5_profiles-1.png)<!-- -->
+
+##### Me7-8 -> Me3 trajectory
+
+Now we repeat the same for the trajectory from the Me7-8 progenitors.
 
 
 ```r
@@ -369,7 +532,138 @@ dynGenes_me7 <- deltaAIC_me7[deltaAIC_me7 < -300]
 # ggplot(df, aes(DPT, expr)) + geom_point(colour=sce[,names(diffPseudotime_me7)]$clusterCol, alpha=0.5) + geom_line(aes(diffPseudotime_me7, predict(fit0, diffPseudotime_me7)), lwd=1, col="steelblue2") + geom_line(aes(diffPseudotime_me7, predict(fit2, diffPseudotime_me7)), lwd=1, col="indianred2") + th
 ```
 
-And 1110 genes dynamic genes from the Me7 turquoise progenitors.
+1110 genes are dynamically expressed along this pathway, and can be clustered into six profiles. 
+
+
+```r
+curves_me7 <- t(sapply(names(dynGenes_me7), function(x){
+  df <- data.frame(diffPseudotime_me7, data[x,])
+  fit2 <- locfit(df[,2]~lp(df[,1], nn=smooth, deg=2), data=df)
+  return(predict(fit2, df[,1]))
+}))
+curvesStd_me7 <- t(apply(curves_me7, 1, function(x) x/max(x)))  # standarise
+
+# cluster the different profiles
+test <- cor(t(curvesStd_me7), method="spearman")
+test.dissim <- sqrt(0.5*((1-test)))
+test.dist <- as.dist(test.dissim)
+test.clust <- hclust(test.dist, method="average")
+
+clust.genes_me7 <- cutreeDynamic(test.clust,distM=as.matrix(test.dist), minClusterSize=50, method="hybrid", deepSplit = 1, verbose = 0)  ## reducing min cluster size doesn't split the tree further
+names(clust.genes_me7) <- row.names(curvesStd_me7)
+# table(clust.genes_me7)
+
+plots <- list()
+for(c in 1:max(clust.genes_me7)){
+  g <- names(clust.genes_me7[clust.genes_me7==c])
+  test <- curvesStd_me7[g,]
+  mean <- colMeans(test)
+  std <- apply(test, 2, sd)
+  df.sub <- data.frame(x=diffPseudotime_me7, ymin=mean-std, ymax=mean+std)
+  df.sub.avg <- data.frame(x=diffPseudotime_me7, y=mean)
+  plots[[c]] <- ggplot() +
+            geom_line(data=df.sub.avg, aes(x=x,y=y), colour="black" , size=1) +
+            geom_ribbon(data=df.sub, aes(x=x,ymin=ymin,ymax=ymax), alpha=0.2, fill="black") +
+            xlab(expression("pseudotime")) +
+            ylab(expression("standaradised expr")) +
+            ggtitle(paste0("Cluster ", c, " (n=", length(g), ")")) + ylim(0,1.2) + th
+}
+ggarrange(plotlist = plots, ncol = 3, nrow = 2)
+```
+
+![](06_trajectoryInference_files/figure-html/dynGenes_me7_clusters-1.png)<!-- -->
+
+This set is also enriched in heart development related terms.
+
+
+```r
+### test GO enrichments
+universe <- row.names(data)
+all <- as.factor(as.numeric(universe %in% names(dynGenes_me7)))
+names(all) <- universe
+
+go.me7 <- new("topGOdata", ontology="BP", allGenes = all, nodeSize=5, annot=annFUN.org, mapping="org.Mm.eg.db", ID = "ensembl")
+go.test.me7 <- runTest(go.me7, algorithm = "classic", statistic = "Fisher" )
+go.res.me7 <- GenTable(go.me7, Fisher.classic = go.test.me7, topNodes = length(score(go.test.me7)))
+go.res.me7$Fisher.classic.adj <- p.adjust(go.res.me7$Fisher.classic, "fdr")
+go.res.me7[is.na(go.res.me7$Fisher.classic.adj),]$Fisher.classic.adj <- go.res.me7[is.na(go.res.me7$Fisher.classic.adj),]$Fisher.classic
+```
+
+And similarly, terms related to muscle and heart development have large proportion of genes that are upregulated as pseudotime increases, whilst terms related to the cell cycle and proliferation have the opposite behaviour.
+
+
+```r
+sig <- go.res.me7[go.res.me7$Fisher.classic.adj < 0.01 & go.res.me7$Significant >= 20,]
+
+props.me7 <- matrix(nrow = length(unique(clust.genes_me7)), ncol = nrow(sig))
+colnames(props.me7) <- sig$GO.ID
+row.names(props.me7) <- 1:6
+for(go in sig$GO.ID){
+  g <- intersect(genesInTerm(go.me7, go)[[1]], names(dynGenes_me7))
+  tmp <- as.matrix(table(clust.genes_me7[g])/length(g)*100)
+  props.me7[row.names(tmp),go] <- tmp
+}
+props.me7[is.na(props.me7)] <- 0
+
+outliers <- c()
+for(i in 1:6){
+  outliers <- c(outliers, which(props.me7[i,] < median(props.me7[i,])-mad(props.me7[i,]) | props.me7[i,] > median(props.me7[i,])+mad(props.me7[i,])))
+}
+
+tmp <- props.me7[,unique(outliers)]
+tmp <- tmp[,order(tmp[1,])]
+colnames(tmp) <- go.res.me7[match(colnames(tmp), go.res.me7$GO.ID),]$Term
+# colnames(tmp)
+sel <- c(2,4,8,30,48,51,85,87,95,102,110,113,121)
+
+par(mar=c(12,2,2,2))
+barplot(tmp[,sel], col=1:6, las=2, cex.names =0.75, xlim=c(0,16))
+legend("topright", legend = 1:6, col = 1:6, pch = 15, title = "cluster")
+```
+
+![](06_trajectoryInference_files/figure-html/go_me7_profiles-1.png)<!-- -->
+
+#### Relationship with developmental stages
+
+The diffusion map orders cells based on the similarity of their transcriptomes. And given the paths that have been revealed, we infer that the algorithm is capturing the progression from the most naïve progenitors to the most mature cardiomyocytes. 
+
+But is there any relationship between the differentiation dynamics and the developmental stage of the embryos?
+
+The cells from embryos of different stages are arranged quite uniformly along the diffusion space, with the exception of the cells fro stage -1, which preferentially occupy the earliest stages of the turquoise (Me7-8 -> Me6(Me4) -> Me3) trajectory and are pretty much absent from the green (Me5 -> Me4 -> Me3) path.
+
+
+```r
+dm$stage <- sce[,row.names(dm)]$stage
+ggplot(dm, aes(DC1, DC2, colour=stage)) + geom_point(size=1, alpha=0.5) + scale_color_manual(values = brewer.pal(n=8, "YlOrBr")[-c(1:2)]) + facet_wrap(~stage) + th + theme(legend.position = "none", axis.text = element_blank(), axis.ticks = element_blank(), axis.line = element_blank())
+```
+
+![](06_trajectoryInference_files/figure-html/dm_perStage-1.png)<!-- -->
+
+And by uniformly I mean consistent with the density of cells observed in the different areas of the diffusion space (more cells at the tips, especially in the turquoise and blue clusters). Thus, all stages but -1 follow similar distributions of density across the first two diffusion components.
+
+
+```r
+plots <- list()
+plots[[1]] <- ggplot(dm, aes(DC1, colour=stage)) + geom_density() + scale_color_manual(values = brewer.pal(n=8, "YlOrBr")[-c(1:2)]) + th + theme(axis.text = element_blank(), axis.ticks = element_blank())
+plots[[2]] <- ggplot(dm, aes(DC2, colour=stage)) + geom_density() + scale_color_manual(values = brewer.pal(n=8, "YlOrBr")[-c(1:2)]) + th + theme(axis.text = element_blank(), axis.ticks = element_blank())
+ggarrange(plotlist = plots, ncol = 2)
+```
+
+![](06_trajectoryInference_files/figure-html/density_perStage-1.png)<!-- -->
+
+This suggests that from the formation of the cardiac crescent at stage 0 onward, the cells do not show substantial transcriptional changes based on embryo age; instead, they are part of a continuous differentiation process that stays constant across these developmental stages.
+
+#### Visualisation
+
+Finally, for ease of interpretation, we plot the diffusion map so that the progenitor populations are at the top and the cardiomyocytes at the bottom (by plotting DC1 on the y-axis and DC2 on the x-axis), which is a more intuitive interpretation.
+
+
+```r
+ggplot(dm, aes(DC2, DC1, colour=sce.cardiac$clusterAnn)) + geom_point() + scale_color_manual(values=cols) + labs(colour="pop") + th + theme(axis.text = element_blank(), axis.ticks = element_blank())
+```
+
+![](06_trajectoryInference_files/figure-html/vis-1.png)<!-- -->
+
 
 
 ```r
@@ -390,6 +684,10 @@ write.table(diffPseudotime_me7, file=paste0(dir, "results/diffusionPseudotime_Me
 ## dynamic genes.
 write.table(deltaAIC_me5, file = paste0(dir, "results/deltaAIC_Me5.tsv"), quote = FALSE, sep="\t", col.names = FALSE)
 write.table(deltaAIC_me7, file = paste0(dir, "results/deltaAIC_Me7.tsv"), quote = FALSE, sep="\t", col.names = FALSE)
+
+## GO enrichment
+write.table(go.res.me5, file=paste0(dir, "results/dynamicGenes_Me5_GO.tsv"), quote = FALSE, sep="\t", row.names = FALSE)
+write.table(go.res.me7, file=paste0(dir, "results/dynamicGenes_Me7_GO.tsv"), quote = FALSE, sep="\t", row.names = FALSE)
 ```
 
 
@@ -416,72 +714,59 @@ sessionInfo()
 ## [8] methods   base     
 ## 
 ## other attached packages:
-##  [1] locfit_1.5-9.1              gplots_3.0.1.1             
-##  [3] RColorBrewer_1.1-2          ggpubr_0.2.3               
-##  [5] magrittr_1.5                ggplot2_3.2.1              
-##  [7] destiny_3.0.0               scran_1.14.1               
-##  [9] SingleCellExperiment_1.8.0  SummarizedExperiment_1.16.0
-## [11] DelayedArray_0.12.0         BiocParallel_1.20.0        
-## [13] matrixStats_0.55.0          Biobase_2.46.0             
-## [15] GenomicRanges_1.38.0        GenomeInfoDb_1.22.0        
-## [17] IRanges_2.20.0              S4Vectors_0.24.0           
-## [19] BiocGenerics_0.32.0        
+##  [1] org.Mm.eg.db_3.10.0         topGO_2.37.0               
+##  [3] SparseM_1.77                GO.db_3.10.0               
+##  [5] AnnotationDbi_1.48.0        graph_1.64.0               
+##  [7] dynamicTreeCut_1.63-1       locfit_1.5-9.1             
+##  [9] gplots_3.0.1.1              RColorBrewer_1.1-2         
+## [11] ggpubr_0.2.4                magrittr_1.5               
+## [13] ggplot2_3.2.1               destiny_3.0.0              
+## [15] scran_1.14.5                SingleCellExperiment_1.8.0 
+## [17] SummarizedExperiment_1.16.0 DelayedArray_0.12.0        
+## [19] BiocParallel_1.20.0         matrixStats_0.55.0         
+## [21] Biobase_2.46.0              GenomicRanges_1.38.0       
+## [23] GenomeInfoDb_1.22.0         IRanges_2.20.1             
+## [25] S4Vectors_0.24.1            BiocGenerics_0.32.0        
 ## 
 ## loaded via a namespace (and not attached):
-##   [1] ggbeeswarm_0.6.0         colorspace_1.4-1        
-##   [3] ggsignif_0.6.0           RcppEigen_0.3.3.5.0     
-##   [5] class_7.3-15             rio_0.5.16              
-##   [7] XVector_0.26.0           RcppHNSW_0.2.0          
-##   [9] BiocNeighbors_1.4.1      rstudioapi_0.10         
-##  [11] proxy_0.4-23             hexbin_1.28.0           
-##  [13] RSpectra_0.15-0          ranger_0.11.2           
-##  [15] codetools_0.2-16         robustbase_0.93-5       
-##  [17] knitr_1.25               scater_1.14.1           
-##  [19] zeallot_0.1.0            compiler_3.6.1          
-##  [21] ggplot.multistats_1.0.0  dqrng_0.2.1             
-##  [23] backports_1.1.5          assertthat_0.2.1        
-##  [25] Matrix_1.2-17            lazyeval_0.2.2          
-##  [27] limma_3.42.0             BiocSingular_1.2.0      
-##  [29] htmltools_0.4.0          tools_3.6.1             
-##  [31] rsvd_1.0.2               igraph_1.2.4.1          
-##  [33] gtable_0.3.0             glue_1.3.1              
-##  [35] GenomeInfoDbData_1.2.2   dplyr_0.8.3             
-##  [37] ggthemes_4.2.0           Rcpp_1.0.2              
-##  [39] carData_3.0-2            cellranger_1.1.0        
-##  [41] vctrs_0.2.0              gdata_2.18.0            
-##  [43] DelayedMatrixStats_1.8.0 lmtest_0.9-37           
-##  [45] xfun_0.10                laeken_0.5.0            
-##  [47] stringr_1.4.0            openxlsx_4.1.3          
-##  [49] lifecycle_0.1.0          irlba_2.3.3             
-##  [51] gtools_3.8.1             statmod_1.4.32          
-##  [53] edgeR_3.28.0             DEoptimR_1.0-8          
-##  [55] zlibbioc_1.32.0          MASS_7.3-51.4           
-##  [57] zoo_1.8-6                scales_1.0.0            
-##  [59] VIM_4.8.0                pcaMethods_1.78.0       
-##  [61] hms_0.5.2                yaml_2.2.0              
-##  [63] curl_4.2                 gridExtra_2.3           
-##  [65] stringi_1.4.3            knn.covertree_1.0       
-##  [67] e1071_1.7-2              TTR_0.23-5              
-##  [69] caTools_1.17.1.2         boot_1.3-23             
-##  [71] zip_2.0.4                rlang_0.4.1             
-##  [73] pkgconfig_2.0.3          bitops_1.0-6            
-##  [75] evaluate_0.14            lattice_0.20-38         
-##  [77] purrr_0.3.3              labeling_0.3            
-##  [79] cowplot_1.0.0            tidyselect_0.2.5        
-##  [81] R6_2.4.0                 withr_2.1.2             
-##  [83] pillar_1.4.2             haven_2.2.0             
-##  [85] foreign_0.8-72           xts_0.11-2              
-##  [87] scatterplot3d_0.3-41     abind_1.4-5             
-##  [89] RCurl_1.95-4.12          sp_1.3-2                
-##  [91] nnet_7.3-12              tibble_2.1.3            
-##  [93] crayon_1.3.4             car_3.0-4               
-##  [95] KernSmooth_2.23-16       rmarkdown_1.16          
-##  [97] viridis_0.5.1            grid_3.6.1              
-##  [99] readxl_1.3.1             data.table_1.12.6       
-## [101] forcats_0.4.0            vcd_1.4-4               
-## [103] digest_0.6.22            tidyr_1.0.0             
-## [105] munsell_0.5.0            beeswarm_0.2.3          
-## [107] viridisLite_0.3.0        smoother_1.1            
-## [109] vipor_0.4.5
+##   [1] readxl_1.3.1             backports_1.1.5          RcppEigen_0.3.3.7.0     
+##   [4] igraph_1.2.4.2           lazyeval_0.2.2           sp_1.3-2                
+##   [7] RcppHNSW_0.2.0           scater_1.14.4            digest_0.6.23           
+##  [10] htmltools_0.4.0          viridis_0.5.1            gdata_2.18.0            
+##  [13] memoise_1.1.0            openxlsx_4.1.3           limma_3.42.0            
+##  [16] xts_0.11-2               colorspace_1.4-1         blob_1.2.0              
+##  [19] haven_2.2.0              xfun_0.11                dplyr_0.8.3             
+##  [22] crayon_1.3.4             RCurl_1.95-4.12          hexbin_1.28.0           
+##  [25] zeallot_0.1.0            zoo_1.8-6                glue_1.3.1              
+##  [28] gtable_0.3.0             zlibbioc_1.32.0          XVector_0.26.0          
+##  [31] car_3.0-5                BiocSingular_1.2.0       DEoptimR_1.0-8          
+##  [34] abind_1.4-5              VIM_4.8.0                scales_1.1.0            
+##  [37] ggplot.multistats_1.0.0  DBI_1.0.0                edgeR_3.28.0            
+##  [40] ggthemes_4.2.0           Rcpp_1.0.3               viridisLite_0.3.0       
+##  [43] laeken_0.5.0             dqrng_0.2.1              foreign_0.8-72          
+##  [46] bit_1.1-14               rsvd_1.0.2               proxy_0.4-23            
+##  [49] vcd_1.4-4                farver_2.0.1             pkgconfig_2.0.3         
+##  [52] nnet_7.3-12              labeling_0.3             tidyselect_0.2.5        
+##  [55] rlang_0.4.2              munsell_0.5.0            cellranger_1.1.0        
+##  [58] tools_3.6.1              RSQLite_2.1.3            ranger_0.11.2           
+##  [61] evaluate_0.14            stringr_1.4.0            yaml_2.2.0              
+##  [64] knitr_1.26               bit64_0.9-7              zip_2.0.4               
+##  [67] robustbase_0.93-5        caTools_1.17.1.3         purrr_0.3.3             
+##  [70] compiler_3.6.1           rstudioapi_0.10          beeswarm_0.2.3          
+##  [73] curl_4.3                 e1071_1.7-3              ggsignif_0.6.0          
+##  [76] knn.covertree_1.0        smoother_1.1             tibble_2.1.3            
+##  [79] statmod_1.4.32           stringi_1.4.3            RSpectra_0.16-0         
+##  [82] forcats_0.4.0            lattice_0.20-38          Matrix_1.2-18           
+##  [85] vctrs_0.2.0              pillar_1.4.2             lifecycle_0.1.0         
+##  [88] lmtest_0.9-37            BiocNeighbors_1.4.1      cowplot_1.0.0           
+##  [91] data.table_1.12.6        bitops_1.0-6             irlba_2.3.3             
+##  [94] R6_2.4.1                 pcaMethods_1.78.0        KernSmooth_2.23-16      
+##  [97] gridExtra_2.3            rio_0.5.16               vipor_0.4.5             
+## [100] codetools_0.2-16         boot_1.3-23              MASS_7.3-51.4           
+## [103] gtools_3.8.1             assertthat_0.2.1         withr_2.1.2             
+## [106] GenomeInfoDbData_1.2.2   hms_0.5.2                grid_3.6.1              
+## [109] tidyr_1.0.0              class_7.3-15             rmarkdown_1.18          
+## [112] DelayedMatrixStats_1.8.0 carData_3.0-3            TTR_0.23-5              
+## [115] scatterplot3d_0.3-41     ggbeeswarm_0.6.0
 ```
 

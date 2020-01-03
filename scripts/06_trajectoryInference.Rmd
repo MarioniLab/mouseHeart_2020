@@ -9,6 +9,7 @@ output:
     fig_caption: yes
     code_folding: hide
     toc: true
+    toc_depth: 4
     toc_float: 
       collapsed: false
 ---
@@ -22,6 +23,8 @@ library(ggpubr)
 library(RColorBrewer)
 library(gplots)
 library(locfit)
+library(dynamicTreeCut)
+library(topGO)
 
 dir <- "/Users/ibarra01/OneDrive - CRUK Cambridge Institute/github/mouseHeart_earlyDev_atlas/"
 
@@ -54,7 +57,8 @@ We have clustered the cells into different cell types, from all three germ layer
 ## clustering results
 sce <- readRDS(paste0(dir, "data/sce_goodQual.NORM.clusters.Rds"))
 
-plot(reducedDim(sce)$x, reducedDim(sce)$y, pch=16, col=sce$clusterCol, xlab="", ylab="", axes=FALSE)
+o <- sample(1:ncol(sce), ncol(sce), replace = FALSE)
+plot(reducedDim(sce)$x[o], reducedDim(sce)$y[o], pch=16, col=sce$clusterCol[o], xlab="", ylab="", axes=FALSE)
 box(bty="l")
 legend("bottomright", legend = names(cols), col=cols, cex=0.5, pch=16)
 text(4, 0, labels = "ectoderm", col="firebrick", cex=0.75, font=2)
@@ -150,7 +154,11 @@ plots[[2]] <- plot(dpt.me5, col_by="branch", root=2, path=c(1,3)) + th
 ggarrange(plotlist = plots, ncol=2, nrow = 1)
 ```
 
-And defining branches based on diffusion pseudotime separates the cardiomyocytes from the yellow cluster and the orange + green progenitors. 
+And defining branches based on diffusion pseudotime separates the cardiomyocytes (Me3) from the yellow cluster (Me6) and the orange (Me4) + green (Me5) progenitors. 
+
+```{r branches_me5}
+table(dpt.me5@branch[,1], sce.Me5[,row.names(dm.me5)]$clusterAnn)
+```
 
 The cells from branch 1 (orange + green) can be further split with two small subclusters at the tip branching out. In the third diffusion component is evident that the cells in purple differentiate towards red, which in turn link to the turquoise branch of cardiomyocytes. But the cells in the blue branch deviate in a different trajectory, that doesn't progress towards cardiomyocytes.
 
@@ -222,7 +230,11 @@ plots[[2]] <- plot(dpt.me7, col_by="branch", root=1, path=c(2,3)) + th
 ggarrange(plotlist = plots, ncol=2, nrow = 1)
 ```
 
-Consistently, there is a branching point that separates the most distinct orange cells; but some orange cells are part of the branch containing the turquoise and yellow progenitors.
+Consistently, there is a branching point that separates the most distinct orange cells (Me4); but some orange cells are part of the branch containing the turquoise (Me7-8) and yellow (Me6) progenitors.
+
+```{r branches_me7}
+table(dpt.me7@branch[,1], sce.Me7[,row.names(dm.me7)]$clusterAnn)
+```
 
 Further splitting branch 2, which contains the turquoise progenitors, also separates a small number of cells at the tip into two branches, suggesting further heterogeneity.
 
@@ -282,6 +294,10 @@ ggarrange(plotlist = plots, ncol = 3, nrow = 1)
 
 Based on these cell orderings, we can identify genes that are expressed dynamically along the trajectories. For this, we follow the method used in *Ibarra-Soria, Wajid et al., Nat Cell Biol, 2018*.
 
+##### Me5 -> Me3 trajectory
+
+First, we look at the Me5 progenitors differentiating into cardiomyocytes.
+
 ```{r dynGenes_me5}
 ## Me5->Me3 trajectory
 diffPseudotime_me5 <- diffPseudotime_me5[order(diffPseudotime_me5)]
@@ -321,7 +337,94 @@ dynGenes_me5 <- deltaAIC_me5[deltaAIC_me5 < -300]
 # }
 ```
 
-We identify `r length(dynGenes_me5)` genes dynamically expressed from the Me5 green progenitors down to cardiomyocytes.
+We identify `r length(dynGenes_me5)` genes dynamically expressed along this trajectory. These can be clustered into five different profiles.
+
+```{r dynGenes_me6_clusters, fig.width=10, fig.height=6}
+curves_me5 <- t(sapply(names(dynGenes_me5), function(x){
+  df <- data.frame(diffPseudotime_me5, data[x,])
+  fit2 <- locfit(df[,2]~lp(df[,1], nn=smooth, deg=2), data=df)
+  return(predict(fit2, df[,1]))
+}))
+curvesStd_me5 <- t(apply(curves_me5, 1, function(x) x/max(x)))  # standarise
+
+# cluster the different profiles
+test <- cor(t(curvesStd_me5), method="spearman")
+test.dissim <- sqrt(0.5*((1-test)))
+test.dist <- as.dist(test.dissim)
+test.clust <- hclust(test.dist, method="average")
+
+clust.genes_me5 <- cutreeDynamic(test.clust,distM=as.matrix(test.dist), minClusterSize=50, method="hybrid", deepSplit = 1, verbose = 0)  # reducing the min cluster size doesn't split the tree further
+names(clust.genes_me5) <- row.names(curvesStd_me5)
+# table(clust.genes_me5)
+
+plots <- list()
+for(c in 1:max(clust.genes_me5)){
+  g <- names(clust.genes_me5[clust.genes_me5==c])
+  test <- curvesStd_me5[g,]
+  mean <- colMeans(test)
+  std <- apply(test, 2, sd)
+  df.sub <- data.frame(x=diffPseudotime_me5, ymin=mean-std, ymax=mean+std)
+  df.sub.avg <- data.frame(x=diffPseudotime_me5, y=mean)
+  plots[[c]] <- ggplot() +
+            geom_line(data=df.sub.avg, aes(x=x,y=y), colour="black" , size=1) +
+            geom_ribbon(data=df.sub, aes(x=x,ymin=ymin,ymax=ymax), alpha=0.2, fill="black") +
+            xlab(expression("pseudotime")) +
+            ylab(expression("standaradised expr")) +
+            ggtitle(paste0("Cluster ", c, " (n=", length(g), ")")) + ylim(0,1.2) + th
+}
+ggarrange(plotlist = plots, ncol = 3, nrow = 2)
+```
+
+And these genes should be enriched for processes involved in heart development. And this is the case:
+
+```{r go_me5, message=FALSE, warning=FALSE}
+### test GO enrichments
+universe <- row.names(data)
+all <- as.factor(as.numeric(universe %in% names(dynGenes_me5)))
+names(all) <- universe
+
+go.me5 <- new("topGOdata", ontology="BP", allGenes = all, nodeSize=5, annot=annFUN.org, mapping="org.Mm.eg.db", ID = "ensembl")
+go.test.me5 <- runTest(go.me5, algorithm = "classic", statistic = "Fisher" )
+go.res.me5 <- GenTable(go.me5, Fisher.classic = go.test.me5, topNodes = length(score(go.test.me5)))
+go.res.me5$Fisher.classic.adj <- p.adjust(go.res.me5$Fisher.classic, "fdr")
+go.res.me5[is.na(go.res.me5$Fisher.classic.adj),]$Fisher.classic.adj <- go.res.me5[is.na(go.res.me5$Fisher.classic.adj),]$Fisher.classic
+go.res.me5[c(1,2,6,7,8,20,23,25,27,41,46,58,63,64,93,95),-6]
+```
+
+Considering significantly enriched terms (FDR < 1%) that have at least 20 dynamic genes, we look at the proportion of genes in each of the clusters defined above. Considering the terms where the proportion for one the clusters deviates considerably from the overall behaviour, we observe that terms with a much higher proportion of genes in cluster 1, which are increasing expression along pseudotime, include the development of cardiac and striated muscle, heart and circulatory system development. This makes sense since pseudotime increases as cells mature into cardiomyocytes. In contrast, terms enriched for cluster 2 genes, which are decreasing along pseudotime, include regulation of the cell cycle and proliferation. Terms with larger proportions of genes from cluster 3, which are downregulated in the middle of pseudotime progression, include several signalling pathways. 
+
+```{r go_me5_profiles, fig.width=8}
+sig <- go.res.me5[go.res.me5$Fisher.classic.adj < 0.01 & go.res.me5$Significant >= 20,]
+
+props.me5 <- matrix(nrow = length(unique(clust.genes_me5)), ncol = nrow(sig))
+colnames(props.me5) <- sig$GO.ID
+row.names(props.me5) <- 1:5
+for(go in sig$GO.ID){
+  g <- intersect(genesInTerm(go.me5, go)[[1]], names(dynGenes_me5))
+  tmp <- as.matrix(table(clust.genes_me5[g])/length(g)*100)
+  props.me5[row.names(tmp),go] <- tmp
+}
+props.me5[is.na(props.me5)] <- 0
+
+outliers <- c()
+for(i in 1:5){
+  outliers <- c(outliers, which(props.me5[i,] < median(props.me5[i,])-mad(props.me5[i,]) | props.me5[i,] > median(props.me5[i,])+mad(props.me5[i,])))
+}
+
+tmp <- props.me5[,unique(outliers)]
+tmp <- tmp[,order(tmp[1,])]
+colnames(tmp) <- go.res.me5[match(colnames(tmp), go.res.me5$GO.ID),]$Term
+# colnames(tmp)
+sel <- c(1:4,17,23,26,38,53,63,70,81,85,88,89,105,113,114,115)
+
+par(mar=c(12,2,2,2))
+barplot(tmp[,sel], col=1:5, las=2, cex.names =0.75, xlim=c(0,25))
+legend("topright", legend = 1:5, col = 1:5, pch = 15, title = "cluster", cex=0.85)
+```
+
+##### Me7-8 -> Me3 trajectory
+
+Now we repeat the same for the trajectory from the Me7-8 progenitors.
 
 ```{r dynGenes_me7}
 ## Me7->Me3 trajectory
@@ -358,7 +461,123 @@ dynGenes_me7 <- deltaAIC_me7[deltaAIC_me7 < -300]
 # ggplot(df, aes(DPT, expr)) + geom_point(colour=sce[,names(diffPseudotime_me7)]$clusterCol, alpha=0.5) + geom_line(aes(diffPseudotime_me7, predict(fit0, diffPseudotime_me7)), lwd=1, col="steelblue2") + geom_line(aes(diffPseudotime_me7, predict(fit2, diffPseudotime_me7)), lwd=1, col="indianred2") + th
 ```
 
-And `r length(dynGenes_me7)` genes dynamic genes from the Me7 turquoise progenitors.
+`r length(dynGenes_me7)` genes are dynamically expressed along this pathway, and can be clustered into six profiles. 
+
+```{r dynGenes_me7_clusters, fig.width=10, fig.height=6}
+curves_me7 <- t(sapply(names(dynGenes_me7), function(x){
+  df <- data.frame(diffPseudotime_me7, data[x,])
+  fit2 <- locfit(df[,2]~lp(df[,1], nn=smooth, deg=2), data=df)
+  return(predict(fit2, df[,1]))
+}))
+curvesStd_me7 <- t(apply(curves_me7, 1, function(x) x/max(x)))  # standarise
+
+# cluster the different profiles
+test <- cor(t(curvesStd_me7), method="spearman")
+test.dissim <- sqrt(0.5*((1-test)))
+test.dist <- as.dist(test.dissim)
+test.clust <- hclust(test.dist, method="average")
+
+clust.genes_me7 <- cutreeDynamic(test.clust,distM=as.matrix(test.dist), minClusterSize=50, method="hybrid", deepSplit = 1, verbose = 0)  ## reducing min cluster size doesn't split the tree further
+names(clust.genes_me7) <- row.names(curvesStd_me7)
+# table(clust.genes_me7)
+
+plots <- list()
+for(c in 1:max(clust.genes_me7)){
+  g <- names(clust.genes_me7[clust.genes_me7==c])
+  test <- curvesStd_me7[g,]
+  mean <- colMeans(test)
+  std <- apply(test, 2, sd)
+  df.sub <- data.frame(x=diffPseudotime_me7, ymin=mean-std, ymax=mean+std)
+  df.sub.avg <- data.frame(x=diffPseudotime_me7, y=mean)
+  plots[[c]] <- ggplot() +
+            geom_line(data=df.sub.avg, aes(x=x,y=y), colour="black" , size=1) +
+            geom_ribbon(data=df.sub, aes(x=x,ymin=ymin,ymax=ymax), alpha=0.2, fill="black") +
+            xlab(expression("pseudotime")) +
+            ylab(expression("standaradised expr")) +
+            ggtitle(paste0("Cluster ", c, " (n=", length(g), ")")) + ylim(0,1.2) + th
+}
+ggarrange(plotlist = plots, ncol = 3, nrow = 2)
+```
+
+This set is also enriched in heart development related terms.
+
+```{r go_me7, message=FALSE, warning=FALSE}
+### test GO enrichments
+universe <- row.names(data)
+all <- as.factor(as.numeric(universe %in% names(dynGenes_me7)))
+names(all) <- universe
+
+go.me7 <- new("topGOdata", ontology="BP", allGenes = all, nodeSize=5, annot=annFUN.org, mapping="org.Mm.eg.db", ID = "ensembl")
+go.test.me7 <- runTest(go.me7, algorithm = "classic", statistic = "Fisher" )
+go.res.me7 <- GenTable(go.me7, Fisher.classic = go.test.me7, topNodes = length(score(go.test.me7)))
+go.res.me7$Fisher.classic.adj <- p.adjust(go.res.me7$Fisher.classic, "fdr")
+go.res.me7[is.na(go.res.me7$Fisher.classic.adj),]$Fisher.classic.adj <- go.res.me7[is.na(go.res.me7$Fisher.classic.adj),]$Fisher.classic
+```
+
+And similarly, terms related to muscle and heart development have large proportion of genes that are upregulated as pseudotime increases, whilst terms related to the cell cycle and proliferation have the opposite behaviour.
+
+```{r go_me7_profiles, fig.width=7}
+sig <- go.res.me7[go.res.me7$Fisher.classic.adj < 0.01 & go.res.me7$Significant >= 20,]
+
+props.me7 <- matrix(nrow = length(unique(clust.genes_me7)), ncol = nrow(sig))
+colnames(props.me7) <- sig$GO.ID
+row.names(props.me7) <- 1:6
+for(go in sig$GO.ID){
+  g <- intersect(genesInTerm(go.me7, go)[[1]], names(dynGenes_me7))
+  tmp <- as.matrix(table(clust.genes_me7[g])/length(g)*100)
+  props.me7[row.names(tmp),go] <- tmp
+}
+props.me7[is.na(props.me7)] <- 0
+
+outliers <- c()
+for(i in 1:6){
+  outliers <- c(outliers, which(props.me7[i,] < median(props.me7[i,])-mad(props.me7[i,]) | props.me7[i,] > median(props.me7[i,])+mad(props.me7[i,])))
+}
+
+tmp <- props.me7[,unique(outliers)]
+tmp <- tmp[,order(tmp[1,])]
+colnames(tmp) <- go.res.me7[match(colnames(tmp), go.res.me7$GO.ID),]$Term
+# colnames(tmp)
+sel <- c(2,4,8,30,48,51,85,87,95,102,110,113,121)
+
+par(mar=c(12,2,2,2))
+barplot(tmp[,sel], col=1:6, las=2, cex.names =0.75, xlim=c(0,17))
+legend("topright", legend = 1:6, col = 1:6, pch = 15, title = "cluster", cex=0.85)
+```
+
+
+#### Relationship with developmental stages
+
+The diffusion map orders cells based on the similarity of their transcriptomes. And given the paths that have been revealed, we infer that the algorithm is capturing the progression from the most naïve progenitors to the most mature cardiomyocytes. 
+
+But is there any relationship between the differentiation dynamics and the developmental stage of the embryos?
+
+The cells from embryos of different stages are arranged quite uniformly along the diffusion space, with the exception of the cells fro stage -1, which preferentially occupy the earliest stages of the turquoise (Me7-8 -> Me6(Me4) -> Me3) trajectory and are pretty much absent from the green (Me5 -> Me4 -> Me3) path.
+
+```{r dm_perStage}
+dm$stage <- sce[,row.names(dm)]$stage
+ggplot(dm, aes(DC1, DC2, colour=stage)) + geom_point(size=1, alpha=0.5) + scale_color_manual(values = brewer.pal(n=8, "YlOrBr")[-c(1:2)]) + facet_wrap(~stage) + th + theme(legend.position = "none", axis.text = element_blank(), axis.ticks = element_blank(), axis.line = element_blank())
+```
+
+And by uniformly I mean consistent with the density of cells observed in the different areas of the diffusion space (more cells at the tips, especially in the turquoise and blue clusters). Thus, all stages but -1 follow similar distributions of density across the first two diffusion components.
+
+```{r density_perStage, fig.width=10}
+plots <- list()
+plots[[1]] <- ggplot(dm, aes(DC1, colour=stage)) + geom_density() + scale_color_manual(values = brewer.pal(n=8, "YlOrBr")[-c(1:2)]) + th + theme(axis.text = element_blank(), axis.ticks = element_blank())
+plots[[2]] <- ggplot(dm, aes(DC2, colour=stage)) + geom_density() + scale_color_manual(values = brewer.pal(n=8, "YlOrBr")[-c(1:2)]) + th + theme(axis.text = element_blank(), axis.ticks = element_blank())
+ggarrange(plotlist = plots, ncol = 2)
+```
+
+This suggests that from the formation of the cardiac crescent at stage 0 onward, the cells do not show substantial transcriptional changes based on embryo age; instead, they are part of a continuous differentiation process that stays constant across these developmental stages.
+
+#### Visualisation
+
+Finally, for ease of interpretation, we plot the diffusion map so that the progenitor populations are at the top and the cardiomyocytes at the bottom (by plotting DC1 on the y-axis and DC2 on the x-axis), which is a more intuitive interpretation.
+
+```{r vis, fig.height=4}
+ggplot(dm, aes(DC2, DC1, colour=sce.cardiac$clusterAnn)) + geom_point() + scale_color_manual(values=cols) + labs(colour="pop") + th + theme(axis.text = element_blank(), axis.ticks = element_blank())
+```
+
 
 ```{r save}
 ## diffusion map
@@ -378,6 +597,10 @@ write.table(diffPseudotime_me7, file=paste0(dir, "results/diffusionPseudotime_Me
 ## dynamic genes.
 write.table(deltaAIC_me5, file = paste0(dir, "results/deltaAIC_Me5.tsv"), quote = FALSE, sep="\t", col.names = FALSE)
 write.table(deltaAIC_me7, file = paste0(dir, "results/deltaAIC_Me7.tsv"), quote = FALSE, sep="\t", col.names = FALSE)
+
+## GO enrichment
+write.table(go.res.me5, file=paste0(dir, "results/dynamicGenes_Me5_GO.tsv"), quote = FALSE, sep="\t", row.names = FALSE)
+write.table(go.res.me7, file=paste0(dir, "results/dynamicGenes_Me7_GO.tsv"), quote = FALSE, sep="\t", row.names = FALSE)
 ```
 
 
