@@ -1,6 +1,6 @@
 ---
 title: "<span style='font-size: 28px'>Single-cell RNAseq of mouse heart development</style>"
-date: '30 November, 2019'
+date: '03 January, 2020'
 output:
   html_document:
     keep_md: true
@@ -9,6 +9,7 @@ output:
     fig_caption: yes
     code_folding: hide
     toc: true
+    toc_depth: 4
     toc_float: 
       collapsed: false
 ---
@@ -194,49 +195,39 @@ sessionInfo()
 ##  [8] datasets  methods   base     
 ## 
 ## other attached packages:
-##  [1] ComplexHeatmap_2.2.0        ggpubr_0.2.3               
+##  [1] ComplexHeatmap_2.2.0        ggpubr_0.2.4               
 ##  [3] magrittr_1.5                ggplot2_3.2.1              
-##  [5] RColorBrewer_1.1-2          scran_1.14.1               
+##  [5] RColorBrewer_1.1-2          scran_1.14.5               
 ##  [7] SingleCellExperiment_1.8.0  SummarizedExperiment_1.16.0
 ##  [9] DelayedArray_0.12.0         BiocParallel_1.20.0        
 ## [11] matrixStats_0.55.0          Biobase_2.46.0             
 ## [13] GenomicRanges_1.38.0        GenomeInfoDb_1.22.0        
-## [15] IRanges_2.20.0              S4Vectors_0.24.0           
+## [15] IRanges_2.20.1              S4Vectors_0.24.1           
 ## [17] BiocGenerics_0.32.0        
 ## 
 ## loaded via a namespace (and not attached):
-##  [1] viridis_0.5.1            edgeR_3.28.0            
-##  [3] BiocSingular_1.2.0       viridisLite_0.3.0       
-##  [5] DelayedMatrixStats_1.8.0 assertthat_0.2.1        
-##  [7] statmod_1.4.32           dqrng_0.2.1             
-##  [9] GenomeInfoDbData_1.2.2   vipor_0.4.5             
-## [11] yaml_2.2.0               pillar_1.4.2            
-## [13] lattice_0.20-38          glue_1.3.1              
-## [15] limma_3.42.0             digest_0.6.22           
-## [17] XVector_0.26.0           ggsignif_0.6.0          
-## [19] colorspace_1.4-1         cowplot_1.0.0           
-## [21] htmltools_0.4.0          Matrix_1.2-17           
-## [23] pkgconfig_2.0.3          GetoptLong_0.1.7        
-## [25] zlibbioc_1.32.0          purrr_0.3.3             
-## [27] scales_1.0.0             tibble_2.1.3            
-## [29] withr_2.1.2              lazyeval_0.2.2          
-## [31] crayon_1.3.4             evaluate_0.14           
-## [33] beeswarm_0.2.3           tools_3.6.1             
-## [35] scater_1.14.1            GlobalOptions_0.1.1     
-## [37] stringr_1.4.0            munsell_0.5.0           
-## [39] locfit_1.5-9.1           cluster_2.1.0           
-## [41] irlba_2.3.3              compiler_3.6.1          
-## [43] rsvd_1.0.2               rlang_0.4.1             
-## [45] RCurl_1.95-4.12          BiocNeighbors_1.4.1     
-## [47] rstudioapi_0.10          circlize_0.4.8          
-## [49] rjson_0.2.20             igraph_1.2.4.1          
-## [51] labeling_0.3             bitops_1.0-6            
-## [53] rmarkdown_1.16           gtable_0.3.0            
-## [55] R6_2.4.0                 gridExtra_2.3           
-## [57] knitr_1.25               dplyr_0.8.3             
-## [59] clue_0.3-57              shape_1.4.4             
-## [61] stringi_1.4.3            ggbeeswarm_0.6.0        
-## [63] Rcpp_1.0.2               png_0.1-7               
-## [65] tidyselect_0.2.5         xfun_0.10
+##  [1] viridis_0.5.1            edgeR_3.28.0             BiocSingular_1.2.0      
+##  [4] viridisLite_0.3.0        DelayedMatrixStats_1.8.0 assertthat_0.2.1        
+##  [7] statmod_1.4.32           dqrng_0.2.1              GenomeInfoDbData_1.2.2  
+## [10] vipor_0.4.5              yaml_2.2.0               pillar_1.4.2            
+## [13] lattice_0.20-38          glue_1.3.1               limma_3.42.0            
+## [16] digest_0.6.23            XVector_0.26.0           ggsignif_0.6.0          
+## [19] colorspace_1.4-1         cowplot_1.0.0            htmltools_0.4.0         
+## [22] Matrix_1.2-18            pkgconfig_2.0.3          GetoptLong_0.1.7        
+## [25] zlibbioc_1.32.0          purrr_0.3.3              scales_1.1.0            
+## [28] tibble_2.1.3             farver_2.0.1             withr_2.1.2             
+## [31] lazyeval_0.2.2           crayon_1.3.4             evaluate_0.14           
+## [34] beeswarm_0.2.3           tools_3.6.1              scater_1.14.4           
+## [37] GlobalOptions_0.1.1      lifecycle_0.1.0          stringr_1.4.0           
+## [40] munsell_0.5.0            locfit_1.5-9.1           cluster_2.1.0           
+## [43] irlba_2.3.3              compiler_3.6.1           rsvd_1.0.2              
+## [46] rlang_0.4.2              RCurl_1.95-4.12          BiocNeighbors_1.4.1     
+## [49] rstudioapi_0.10          circlize_0.4.8           rjson_0.2.20            
+## [52] igraph_1.2.4.2           labeling_0.3             bitops_1.0-6            
+## [55] rmarkdown_1.18           gtable_0.3.0             R6_2.4.1                
+## [58] gridExtra_2.3            knitr_1.26               dplyr_0.8.3             
+## [61] clue_0.3-57              shape_1.4.4              stringi_1.4.3           
+## [64] ggbeeswarm_0.6.0         Rcpp_1.0.3               png_0.1-7               
+## [67] tidyselect_0.2.5         xfun_0.11
 ```
 

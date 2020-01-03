@@ -8,7 +8,8 @@ output:
     fig_height: 5
     fig_caption: yes
     code_folding: hide
-    toc: false
+    toc: true
+    toc_depth: 4
     toc_float: 
       collapsed: false
 ---

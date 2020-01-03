@@ -9,6 +9,7 @@ output:
     fig_caption: yes
     code_folding: hide
     toc: true
+    toc_depth: 4
     toc_float: 
       collapsed: false
 ---

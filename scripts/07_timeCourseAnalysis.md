@@ -1,6 +1,6 @@
 ---
 title: "<span style='font-size: 28px'>Single-cell RNAseq of mouse heart development</style>"
-date: '10 December, 2019'
+date: '03 January, 2020'
 output:
   html_document:
     keep_md: true
@@ -8,7 +8,8 @@ output:
     fig_height: 5
     fig_caption: yes
     code_folding: hide
-    toc: false
+    toc: true
+    toc_depth: 4
     toc_float: 
       collapsed: false
 ---
