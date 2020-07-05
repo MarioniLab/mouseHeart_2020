@@ -6,6 +6,9 @@ library(circlize)
 library(ggplot2)
 library(ggpubr)
 library(locfit)
+library(reshape2)
+library(destiny)
+library(gplots)
 
 dir <- "/Users/ibarra01/OneDrive - CRUK Cambridge Institute/github/mouseHeart_earlyDev_atlas/"
 out <- "/Users/ibarra01/OneDrive - CRUK Cambridge Institute/WRITING/HEART/Figures/figureElements/"
@@ -13,10 +16,9 @@ out <- "/Users/ibarra01/OneDrive - CRUK Cambridge Institute/WRITING/HEART/Figure
 th <- theme_bw() + theme(axis.ticks.x = element_blank(), axis.text.x = element_text(size=10), axis.title.x = element_text(size=12), axis.text.y = element_text(size=10), axis.title.y = element_text(size=12), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"), panel.border = element_blank(), plot.title = element_text(face="bold", hjust = 0.5))
 
 
+### Figure 1 ###############
 
-### Figure 1
-
-## UMAP with clusters
+## UMAP with clusters ======
 umap <- read.table(paste0(dir, "results/umapCoords_corrected.tab"))
 clusters <- read.table(paste0(dir, "results/clusters_average_min40.tsv"), row.names = 1)
 stopifnot(identical(row.names(umap), row.names(clusters)))
@@ -42,16 +44,22 @@ clusters$col <- cols[clusters$ann]
 
 order <- sample(1:nrow(umap), nrow(umap), replace = FALSE)
 pdf(paste0(out, "Fig1_UMAP.pdf"), width = 7, height = 7, useDingbats = FALSE)
-plot(umap$x[order], umap$y[order], pch=16, col=clusters$col[order], bty="l", xlab="UMAP dim1", ylab="UMAP dim2")
-legend("bottomright", legend = ann[order(ann)], col=cols[ann[order(ann)]], pch=16, cex=0.5)
+plot(umap$x[order], umap$y[order], 
+     pch=16, col=clusters$col[order], 
+     xlab="UMAP dim1", ylab="UMAP dim2", 
+     axes=FALSE)
+box(bty="l")
+legend("bottomright", legend = ann[order(ann)], 
+       col=cols[ann[order(ann)]], 
+       pch=16, cex=0.5, ncol=2)
 dev.off()
 
 
-## Expression of marker genes
+## marker heatmap ======
 sce <- readRDS(paste0(dir, "data/sce_goodQual.NORM.clusters.Rds"))
-
-# markers <- c("Ttr","Hhex","Sox17","Foxa2","Pax9","Cdh1","Sox2","Dlx5","Tfap2a","Wnt6","Sox1","Snai1","Nkx2-5","Smarcd3","Ttn","Myh6","Actn2","Gata1","Runx1","Hba-a1","Tal1","Pecam1","Tie1","Cdh5","Emcn")
-markers <- c("Ttr","Hhex","Sox17","Pax9","Cdh1","Sox2","Dlx5","Wnt6","Sox1","Snai1","Isl1","Smarcd3","Nkx2-5","Mef2c","Gata4","Ttn","Myh6","Actn2","Gata1","Hba-a1","Tal1","Cdh5","Emcn")
+markers <- c("Ttr","Hhex","Foxa2","Cdh1","Sox17","Pax9","Sox2","Dlx5","Wnt6","Tfap2a","Sox1","Gata1","Hba-a1","Tal1","Sox7","Cdh5","Sox17","Pdgfra","Nkx2-5","Mef2c","Gata4","Tnnt2","Ttn","Myh6","Actn2",
+             "Nkx2-5","Hand1","Tbx5","Hcn4","Sfrp5",
+             "Isl1","Foxc2","Tbx1","Fgf8","Hoxa1","Hoxb1")
 tmp <- logcounts(sce)[row.names(rowData(sce)[rowData(sce)$gene %in% markers,]),]
 tmp <- t(apply(tmp, 1, function(x) x/max(x)))
 row.names(tmp) <- rowData(sce)[row.names(tmp),]$gene
@@ -63,127 +71,257 @@ clust <- hclust(dist(t(tmp)))
 order <- colnames(tmp)[clust$order]
 order <- clusters[order,]
 order <- order[order(order$ann),]
-order <- rbind(order[order$ann=="En2",], order[order$ann=="En1",], order[order$ann=="Ec1",], order[order$ann=="Ec2",],
-           order[order$ann=="Me8",], order[order$ann=="Me7",], order[order$ann=="Me5",], order[order$ann=="Me6",],
-           order[order$ann=="Me4",], order[order$ann=="Me3",], order[order$ann=="Me1",], order[order$ann=="Me2",])
+order <- rbind(order[order$ann=="En2",], order[order$ann=="En1",], 
+               order[order$ann=="Ec1",], order[order$ann=="Ec2",],
+               order[order$ann=="Me1",], order[order$ann=="Me2",],
+               order[order$ann=="Me5",], order[order$ann=="Me4",], 
+               order[order$ann=="Me8",], order[order$ann=="Me7",], order[order$ann=="Me6",], 
+               order[order$ann=="Me3",])
 
+order$split <- ifelse(grepl("En", order$ann), 1, ifelse(grepl("Ec", order$ann), 2, ifelse(grepl("Me1", order$ann), 3, ifelse(grepl("Me2", order$ann), 3, 4))))
+
+gene.split <- c(rep(1,6), rep(2,5), rep(3,3), rep(4,3), rep(5,8), 6, rep(7,4), rep(8,6))
 ha = HeatmapAnnotation(df = data.frame(cluster = order$ann), col = list(cluster = cols))
 
 pdf(paste0(out, "Fig1_heatmap_markers.pdf"), width = 7, height = 7, useDingbats = FALSE)
-Heatmap(tmp[,row.names(order)], col=palette, top_annotation = ha, cluster_columns = FALSE, cluster_rows = FALSE, show_column_names = FALSE)
+Heatmap(tmp[,row.names(order)], col=palette, 
+        top_annotation = ha, 
+        cluster_columns = FALSE, cluster_rows = FALSE, 
+        show_column_names = FALSE, 
+        column_split = order$split, 
+        row_split = gene.split)
 dev.off()
 
 
-## Cell-cycle phase assignment
-cell_cycle <- read.table(paste0(dir, "results/cellCyclePhase.tsv"), stringsAsFactors = FALSE, row.names = 1)
+## Cell-cycle phase assignment ======
+cell_cycle <- read.table(paste0(dir, "results/cellCyclePhase.tsv"), 
+                         stringsAsFactors = FALSE, row.names = 1)
 stopifnot(identical(row.names(umap), row.names(cell_cycle)))
 
 palette(c("#626D71", "#B38867", "#DDBC95"))
 
 order <- sample(1:nrow(umap), nrow(umap), replace = FALSE)
 pdf(paste0(out, "Fig1_cellCycle.pdf"), width = 7, height = 6, useDingbats = FALSE)
-plot(umap$x[order], umap$y[order], pch=16, cex=0.75, col=as.factor(cell_cycle$V2[order]), bty="l", xlab="", ylab="", axes = FALSE)
+plot(umap$x[order], umap$y[order], pch=16, cex=0.75, 
+     col=as.factor(cell_cycle$V2[order]), 
+     bty="l", xlab="", ylab="", axes = FALSE)
 box(bty="l")
-legend("topright", legend = levels(as.factor(cell_cycle$V2[order])), col=1:3, pch=16, cex=0.75)
+legend("bottomright", legend = levels(as.factor(cell_cycle$V2[order])), 
+       col=1:3, pch=16, cex=0.75)
 dev.off()
 
 
-## Expression of FHF and SHF markers
-heartFields <- c("Tbx5", "Hand1", "Sfrp5", "Hcn4", "Tbx1", "Foxc2", "Hoxb1", "Isl1")
+### Figure 2 ###############
 
-tmp <- logcounts(sce)[row.names(rowData(sce)[rowData(sce)$gene %in% heartFields,]), sce$clusterAnn %in% paste0("Me", 3:8)]
+## Reference data UMAP ======
+sce.ref <- readRDS(paste0(dir, "data/sce_referenceCells_goodQual_clean.NORM.clusters.Rds"))
+umap.ref <- as.data.frame(reducedDim(sce.ref))
+umap.ref$cluster <- sce.ref$cluster
+umap.ref$ann <- sce.ref$regionAnn
+
+cols.ref <- c(cranialMesoderm = "#75B3E2", cardiacMesoderm = "#ED6B58", 
+              dorsalMesoderm = "#A57CB5", caudalPSM = "#589E46")
+cols.ref.cluster <- c(cluster3 = "#25958C", cluster1 = "#6BB288", cluster2 = "#F4CC71", 
+                      cluster6 = "#DF7A24", cluster5 = "#9C5016")
+
+pdf(paste0(out, "Fig2_UMAP_refData.pdf"), width = 10, height = 5, useDingbats = FALSE)
+par(mfrow=c(1,2))
+plot(umap.ref$V2, umap.ref$V1, axes=FALSE, 
+     xlab="UMAP_1", ylab="UMAP_2", 
+     col="black", bg=cols.ref[umap.ref$ann], pch=21)
+box(bty="l")
+legend("topleft", legend = names(cols.ref), pch=16, col=cols.ref)
+plot(umap.ref$V2, umap.ref$V1, axes=FALSE, 
+     xlab="UMAP_1", ylab="UMAP_2", 
+     col="black", bg=cols.ref.cluster[umap.ref$cluster], pch=21)
+box(bty="l")
+legend("topleft", legend = names(cols.ref.cluster), pch=16, col=cols.ref.cluster)
+dev.off()
+
+
+## Markers of reference regions ======
+genes <- c("Cyp26c1", "Tcf15", "Hoxa1", "Meox1", "Gata5", "Ttn")
+plots <- list()
+for(gene in genes){
+  tmp <- data.frame(x=umap.ref$V1, y=umap.ref$V2, 
+                    expr=as.numeric(logcounts(sce.ref[row.names(rowData(sce.ref)[rowData(sce.ref)$gene == gene,]),])))
+  plots[[gene]] <- ggplot(tmp, aes(y, x, col=expr)) + 
+    geom_point() + 
+    xlab("") + ylab("") + 
+    ggtitle(gene) +
+    scale_color_gradientn(colors=c("grey", brewer.pal(n=9, "Blues")[-1])) +
+    th + 
+    theme(axis.text.x = element_blank(), 
+          axis.text.y = element_blank(), 
+          axis.ticks.y = element_blank())
+}
+pdf(paste0(out, "Fig2_importantGenesForest.pdf"), width = 12, height = 8, useDingbats = FALSE)
+ggarrange(plotlist = plots, ncol=3, nrow=2, common.legend = TRUE)
+dev.off()
+
+
+## Classification of atlas ======
+labels <- read.table(paste0(dir, "results/classesUnbiasedMe3-8.randForest.tsv"))
+probs <- read.table(paste0(dir, "results/classesUnbiasedMe3-8.randForest.probs.tsv"))
+
+calls <- data.frame(class=labels, max.prob=apply(probs, 2, max), 
+                    closest=apply(probs, 2, function(x) max(x[x!=max(x)]) ))
+calls$diff <- calls$max.prob-calls$closest
+calls$pass <- ifelse(calls$diff > 0.15, 1, 0)
+
+umap$class <- labels[match(row.names(umap), labels$V1),2]
+umap$pass <- ifelse(row.names(umap) %in% row.names(calls[calls$pass==1,]), 1, 0)
+umap$cluster <- clusters[row.names(umap),2]
+
+palette(brewer.pal(n=8, "Set2"))
+
+order <- sample(row.names(umap[umap$pass==1,]))
+pdf(paste0(out, "Fig2_atlasClassification.pdf"), useDingbats = FALSE)
+plot(umap$x, umap$y, pch=16, col="lightgrey", 
+     axes=FALSE, xlab="", ylab="", 
+     xlim=c(-12,0), ylim=c(-7,4))
+points(umap[umap$pass==0 & !is.na(umap$class),]$x, 
+       umap[umap$pass==0 & !is.na(umap$class),]$y, 
+       pch=16, col="grey")
+points(umap[umap$pass==1,][order,]$x, umap[umap$pass==1,][order,]$y, 
+       pch=16, col=umap[umap$pass==1,][order,]$class)
+box(bty="l")
+legend("topleft", legend = levels(as.factor(umap$class)), pch=16, col=1:6)
+dev.off()
+
+
+## Proportions of classes per cluster ======
+tmp <- umap[umap$pass==1,] ## remove low-confidence calls
+freqs <- table(tmp$class, tmp$cluster)
+props <- prop.table(freqs, 2)*100
+
+freqs <- melt(freqs)
+props <- melt(props)
+props$Var1 <- factor(props$Var1, levels = c("cranialMesoderm", "caudalPSM_13", 
+                                            "dorsalMesoderm_1", "dorsalMesoderm_2", 
+                                            "cardiacMesoderm_2", "cardiacMesoderm_56"))
+
+pdf(paste0(out, "Fig2_atlasClassification_props.pdf"), useDingbats = FALSE)
+ggplot(props, aes(Var2, value, fill = Var1, label = freqs$value)) +
+  geom_bar(stat = "identity") +
+  geom_text(size = 3, position = position_stack(vjust = 0.5)) +
+  xlab("") + ylab("") + labs(fill="") +
+  th
+dev.off()
+
+
+## Expression of marker genes ======
+genes <- c("Tbx1", "Fst", "Foxc2")
+
+tmp <- logcounts(sce)[row.names(rowData(sce)[rowData(sce)$gene %in% genes,]), ]
 row.names(tmp) <- rowData(sce)[row.names(tmp),]$gene
-pops <- sce[,sce$clusterAnn %in% paste0("Me", 3:8)]$clusterAnn
-pops <- factor(pops, levels = c(paste0("Me",5:3), paste0("Me",6:8)))
 
 plots <- list()
 for(gene in row.names(tmp)){
-  df <- data.frame(expr=tmp[gene,], cluster=pops)
-  plots[[gene]] <- ggplot(df, aes(pops, expr, col=pops, alpha=0.95)) + geom_violin(scale="width") + ylim(c(0,10)) + scale_colour_manual(values=cols) + ggtitle(gene) + th + theme(legend.position = "none")
+  df <- data.frame(umap, expr=tmp[gene,])
+  df <- df[order(df$expr),]
+  plots[[gene]] <- ggplot(df, aes(x, y, colour=expr)) + geom_point() + 
+    scale_color_gradientn(colours = colorRampPalette(c("grey", "lightblue", "dodgerblue4", "royalblue4"))(100)) + 
+    xlab("") + ylab("") + xlim(-9.5,-2.5) + ylim(-6.5,3) + 
+    ggtitle(gene) + th + theme(axis.text.x = element_blank(), axis.text.y = element_blank(),
+                               axis.ticks.y = element_blank())
 }
 
-pdf(paste0(out, "Fig1_FSHF_markers.pdf"), width = 12, height = 7, useDingbats = FALSE)
-ggarrange(plotlist = plots, ncol = 4, nrow = 2)
+pdf(paste0(out, "Fig2_markers.pdf"), width = 10, height = 4, useDingbats = FALSE)
+ggarrange(plotlist = plots, ncol = 3, common.legend = TRUE)
 dev.off()
 
 
 
+### Figure 4 ###############
 
-### Figure 2
-
-## Diffusion map
+## Diffusion map ======
 diffMap <- readRDS(paste0(dir, "results/diffusionMap_cardiacMesoderm.Rds"))
 diffMap <- as.data.frame(diffMap@eigenvectors[,1:5])
 diffMap$cluster <- clusters[row.names(diffMap),]$ann
 
-pdf(paste0(out, "Fig2_diffMap.pdf"), useDingbats = FALSE)
-ggplot(diffMap, aes(DC2, DC1, colour=cluster)) + geom_point() + scale_color_manual(values = cols[7:12]) + th
+pdf(paste0(out, "Fig3_diffMap.pdf"), useDingbats = FALSE)
+ggplot(diffMap, aes(DC2, -DC1, colour=cluster)) + 
+  geom_point() + 
+  scale_color_manual(values = cols[7:12]) + 
+  th + theme(axis.ticks.y = element_blank(),
+             axis.text.x = element_blank(),
+             axis.text.y = element_blank())
 dev.off()
+
 
 ## Diffusion pseudotime
 dpt <- readRDS(paste0(dir, "results/diffusionPseudotime_cardiacMesoderm.Rds"))
-# which(dpt@tips[,1])
-diffMap$dpt <- dpt$DPT770
+diffMap$dpt <- dpt$DPT684
 
-pdf(paste0(out, "Fig2_diffPDT.pdf"), useDingbats = FALSE)
-ggplot(diffMap, aes(DC2, DC1, colour=dpt)) + geom_point() + scale_color_gradientn(colours = brewer.pal(n=9, "YlOrBr")[-c(1)]) + th
+pdf(paste0(out, "Fig4_diffPDT.pdf"), useDingbats = FALSE)
+ggplot(diffMap, aes(DC2, -DC1, colour=dpt)) + 
+  geom_point() + 
+  scale_color_gradientn(colours = rev(brewer.pal(n=9, "YlOrBr")[-c(1)])) + 
+  th + theme(axis.ticks.y = element_blank(),
+             axis.text.x = element_blank(),
+             axis.text.y = element_blank())
 dev.off()
 
-## Add branches
-pdf(paste0(out, "Fig2_diffMap_paths.pdf"), useDingbats = FALSE)
-plot(dpt, root=2, paths_to=c(1,3), col_by="branch",dcs=c(2,1)) + th
-dev.off()
 
-## Nkx2-5 expr
-df <- data.frame(x = diffMap$DC2, y = diffMap$DC1, log2.exp = logcounts(sce)[row.names(rowData(sce)[rowData(sce)$gene == "Nkx2-5",]),row.names(diffMap)])
-df <- df[order(df$log2.exp),]
 
-pdf(paste0(out, "Fig2_Nkx2-5_diffMap.pdf"), useDingbats = FALSE)
-ggplot(df, aes(x,y)) + geom_point(aes(colour=log2.exp), cex=1.5) + scale_colour_gradientn(colours = colorRampPalette(c("grey", "lightblue", "dodgerblue4", "royalblue4"))(100)) + ggtitle("Nkx2-5") + xlab("") + ylab("") + labs(colour=expression('log'[2]*' counts')) + th + theme(axis.ticks.y = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank(), legend.position = "bottom", legend.text.align = 0.5, legend.title.align = 0.5, legend.box.margin=margin(-20,0,0,0)) + guides(colour = guide_colorbar(title.position = "bottom"))
-dev.off()
+### Figure 5 ###############
+
+## Tbx18+ cells ======
+df <- data.frame(cluster=sce$clusterAnn, 
+                 expr=logcounts(sce)[row.names(rowData(sce)[rowData(sce)$gene == "Tbx18",]),])
+df$positive <- ifelse(df$expr>0, 1, 0)
+props <- as.data.frame(prop.table(table(df$cluster, df$positive)[-c(1:6),], 1)*100)
+props <- props[props$Var2==1,]
+props
 
 ## Diffusion pseudotime for Me5->M3
-dpt <- read.table(paste0(dir, "results/diffusionPseudotime_Me5.tsv"), row.names = 1)
+dpt.me5 <- read.table(paste0(dir, "results/diffusionPseudotime_Me5.tsv"), row.names = 1)
 
-df$me5 <- dpt[match(row.names(df), row.names(dpt)),1]
+## Nkx2-5 expr ======
+df <- data.frame(x = diffMap$DC2, y = -diffMap$DC1, 
+                 log2.exp = logcounts(sce)[row.names(rowData(sce)[rowData(sce)$gene == "Nkx2-5",]),
+                                           row.names(diffMap)])
+df$me5 <- dpt.me5[match(row.names(df), row.names(dpt.me5)),1]
 fit2 <- locfit(df[!is.na(df$me5),3]~lp(df[!is.na(df$me5),4], nn=1, deg=2), data=df)
 curve <- predict(fit2, df[!is.na(df$me5),4])
 
-pdf(paste0(out, "Fig2_Nkx2-5_Me5-3.pdf"), useDingbats = FALSE)
-ggplot(df[!is.na(df$me5),], aes(me5, log2.exp)) + geom_point(colour=as.character(clusters[row.names(df[!is.na(df$me5),]),]$col)) + ylim(c(0,max(df$me5))) + ggtitle("Nkx2-5") + xlab("pseudotime") + ylab(expression('log'[2]*' counts')) + th + theme(axis.text.x = element_blank()) + geom_line(aes(df[!is.na(df$me5),]$me5, curve), lwd=1)
+pdf(paste0(out, "Fig5_Nkx2-5_Me5-3.pdf"), useDingbats = FALSE)
+ggplot(df[!is.na(df$me5),], aes(me5, log2.exp)) + 
+  geom_point(colour=as.character(clusters[row.names(df[!is.na(df$me5),]),]$col)) + 
+  ylim(c(0,max(df$me5))) + 
+  ggtitle("Nkx2-5") + 
+  xlab("pseudotime") + ylab(expression('log'[2]*' counts')) + 
+  th + 
+  theme(axis.text.x = element_blank()) + 
+  geom_line(aes(df[!is.na(df$me5),]$me5, curve), lwd=1)
 dev.off()
 
 
-
-
-### Figure 3
-
-## Mab21l2 expression in diffusion map
-df <- data.frame(x = diffMap$DC1, y = diffMap$DC2, log2.exp = logcounts(sce)[row.names(rowData(sce)[rowData(sce)$gene == "Mab21l2",]),row.names(diffMap)])
-df <- df[order(df$log2.exp),]
-
-pdf(paste0(out, "Fig3_Mab21l2_diffMap.pdf"), useDingbats = FALSE)
-ggplot(df, aes(x,y)) + geom_point(aes(colour=log2.exp), cex=1.5) + scale_colour_gradientn(colours = colorRampPalette(c("grey", "lightblue", "dodgerblue4", "royalblue4"))(100)) + ggtitle("Mab21l2") + xlab("") + ylab("") + labs(colour=expression('log'[2]*' counts')) + th + theme(axis.ticks.y = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank(), legend.position = "bottom", legend.text.align = 0.5, legend.title.align = 0.5, legend.box.margin=margin(-20,0,0,0)) + guides(colour = guide_colorbar(title.position = "bottom"))
-dev.off()
-
-
-## Mab21l2 expressin in Me5->Me3 trajectory
-df$me5 <- dpt[match(row.names(df), row.names(dpt)),1]
+## Mab21l2 expr ======
+df <- data.frame(x = diffMap$DC2, y = -diffMap$DC1, 
+                 log2.exp = logcounts(sce)[row.names(rowData(sce)[rowData(sce)$gene == "Mab21l2",]),
+                                           row.names(diffMap)])
+df$me5 <- dpt.me5[match(row.names(df), row.names(dpt.me5)),1]
 fit2 <- locfit(df[!is.na(df$me5),3]~lp(df[!is.na(df$me5),4], nn=1, deg=2), data=df)
 curve <- predict(fit2, df[!is.na(df$me5),4])
 
-pdf(paste0(out, "Fig3_Mab21l2_Me5-3.pdf"), useDingbats = FALSE)
-ggplot(df[!is.na(df$me5),], aes(me5, log2.exp)) + geom_point(colour=as.character(clusters[row.names(df[!is.na(df$me5),]),]$col)) + ylim(c(0,max(df$me5))) + ggtitle("Mab21l2") + xlab("pseudotime") + ylab(expression('log'[2]*' counts')) + th + theme(axis.text.x = element_blank()) + geom_line(aes(df[!is.na(df$me5),]$me5, curve), lwd=1)
+pdf(paste0(out, "Fig5_Mab21l2_Me5-3.pdf"), useDingbats = FALSE)
+ggplot(df[!is.na(df$me5),], aes(me5, log2.exp)) + 
+  geom_point(colour=as.character(clusters[row.names(df[!is.na(df$me5),]),]$col)) + 
+  ylim(c(0,max(df$me5))) + 
+  ggtitle("Mab21l2") + 
+  xlab("pseudotime") + ylab(expression('log'[2]*' counts')) + 
+  th + 
+  theme(axis.text.x = element_blank()) + 
+  geom_line(aes(df[!is.na(df$me5),]$me5, curve), lwd=1)
 dev.off()
 
 
 
+### Figure S1 ###############
 
-##########
-
-### Figure S1
-
-## UMAP per stage
+## UMAP per stage ======
 umap$stage <- colData(sce)$stage
 umap$cluster <- sce$clusterAnn
 umap$col <- sce$clusterCol
@@ -192,14 +330,16 @@ pdf(paste0(out, "FigS1_UMAPstages.pdf"), width = 10, height = 4.5, useDingbats =
 stages <- c(-1:3,"LHT")
 par(mfrow=c(2,3), mar=c(2,2,2,2))
 for(stage in stages){
-  plot(umap[umap$stage==stage,]$x, umap[umap$stage==stage,]$y, col=umap[umap$stage==stage,]$col, pch=16, ylim=c(-6.5,11), xlim=c(-10,17), main=paste("stage",stage), xlab="", ylab="", axes=FALSE)
+  plot(umap[umap$stage==stage,]$x, umap[umap$stage==stage,]$y, col=umap[umap$stage==stage,]$col, 
+       pch=16, ylim=c(-6.5,11), xlim=c(-10,17), main=paste("stage",stage), 
+       xlab="", ylab="", axes=FALSE)
   box(bty="l")
 }
 dev.off()
 
-## Proportion of cells per cluster across stages
 
-# use the different batches as replicates, to get estimates with mean +- se
+## Proportion of cells per cluster across stages ======
+# use the different batches as replicates, to get estimates with mean +- sd
 props <- list()
 for(i in unique(sce$batch)){
   props[[i]] <- as.matrix(table(sce[,sce$batch == i]$clusterAnn, sce[,sce$batch == i]$stage))
@@ -226,14 +366,29 @@ props.sd[,'stage_2'] <- rowSds(cbind(c(props[[2]][1:5,1],0,props[[2]][6:11,1]), 
 props.sd[,'stage_3'] <- rowSds(cbind(props[[4]][,3], props[[5]][,3]))
 props.sd[,'stage_LHT'] <- rowSds(cbind(c(props[[1]][1:2,1],0,0,0,props[[1]][3:5,1],0,props[[1]][6:8,1]), c(props[[2]][1:5,2],0,props[[2]][6:11,2])))
 
+## add stage -1 without sd
+props.mean <- cbind(props[["batch_7"]][,1], props.mean)
+colnames(props.mean)[1] <- "stage_-1"
+props.sd <- cbind(rep(0, nrow(props.sd)), props.sd)
+colnames(props.sd)[1] <- "stage_-1"
+
 # plot
-df <- data.frame(pop = rep(row.names(props.mean),5), stage = rep(substr(colnames(props.mean),7,9), each=nrow(props.mean)), mean = c(props.mean), sd = c(props.sd))
+df <- data.frame(pop = rep(row.names(props.mean), 6), 
+                 stage = rep(substr(colnames(props.mean),7,9), each=nrow(props.mean)), 
+                 mean = c(props.mean), sd = c(props.sd))
+
 pdf(paste0(out, "FigS1_propsStage.pdf"), width = 8, height = 6, useDingbats = FALSE)
-ggplot(df, aes(x=stage, y=mean, group=pop, color=pop)) + geom_line() + geom_pointrange(aes(ymin=mean-sd, ymax=mean+sd)) + scale_color_manual(values=cols) + facet_wrap(. ~ pop, ncol=4) + ylab("% of cells in cluster") + th + theme(legend.position = "none")
+ggplot(df, aes(x=stage, y=mean, group=pop, color=pop)) + 
+  geom_line() + 
+  geom_pointrange(aes(ymin=mean-sd, ymax=mean+sd)) + 
+  scale_color_manual(values=cols) + 
+  facet_wrap(. ~pop, ncol=4) + 
+  ylab("% of cells in cluster") + 
+  th + theme(legend.position = "none")
 dev.off()
 
 
-## Proportion of cells in G1 per stage
+## Proportion of cells in G1 per stage ======
 cell_cycle <- cbind(cell_cycle, umap[match(row.names(cell_cycle), row.names(umap)),])
 
 props <- as.matrix(table(cell_cycle$V2, cell_cycle$cluster))
@@ -249,44 +404,93 @@ dev.off()
 
 
 
+### Figure S2 ###############
 
-### Figure S2
-
-## QC metrics
+## QC metrics ======
 qc <- read.table(paste0(dir, "data/QCstats_allCells.tsv"))
 meta <- read.table(paste0(dir, "data/SupplementaryTable1.tab"), header = TRUE, row.names = 1)
 stopifnot(identical(row.names(qc), row.names(meta)))
 
 plots <- list()
-plots[[1]] <- ggplot(qc, aes(x=as.factor(meta$batch), y=log10(libSize+1), fill=as.factor(meta$batch), alpha=0.5)) + geom_violin() + geom_boxplot(width=0.05) + scale_fill_manual(values = palette(brewer.pal(n=8, "Set3")[-2])) + ylab(expression('log'[10]*' library size')) + xlab("batch") + geom_hline(yintercept = log10(50000), lwd=0.25, lty=2, col="grey") + ggtitle("total reads in genes") + th + theme(legend.position="none")
-plots[[2]] <- ggplot(qc, aes(x=as.factor(meta$batch), y=nGenes/1e3, fill=as.factor(meta$batch), alpha=0.5)) + geom_violin() + geom_boxplot(width=0.05) + scale_fill_manual(values = palette(brewer.pal(n=8, "Set3")[-2])) + ylab("total genes x1000") + xlab("batch") + geom_hline(yintercept = 6, lwd=0.25, lty=2, col="grey") + ggtitle("number of genes detected") + th + theme(legend.position="none")
-plots[[3]] <- ggplot(qc, aes(x=as.factor(meta$batch), y=mit/libSize*100, fill=as.factor(meta$batch), alpha=0.5)) + geom_violin() + geom_boxplot(width=0.05) + scale_fill_manual(values = palette(brewer.pal(n=8, "Set3")[-2])) + ylab("% reads in MT genes") + xlab("batch") + geom_hline(yintercept = 15, lwd=0.25, lty=2, col="grey") + ggtitle("% reads in mitochondrial genes") + th + theme(legend.position="none")
-plots[[4]] <- ggplot(qc, aes(x=as.factor(meta$batch), y=ercc/libSize*100, fill=as.factor(meta$batch), alpha=0.5)) + geom_violin(scale="width") + geom_boxplot(width=0.05) + scale_fill_manual(values = palette(brewer.pal(n=8, "Set3")[-2])) + ylab("% reads in spike-ins") + xlab("batch") + geom_hline(yintercept = 30, lwd=0.25, lty=2, col="grey") + ggtitle("% reads in ERCC spike-ins") + th + theme(legend.position="none")
+plots[[1]] <- ggplot(qc, aes(x=as.factor(meta$batch), y=log10(libSize+1), fill=as.factor(meta$batch), alpha=0.5)) + 
+  geom_violin() + 
+  geom_boxplot(width=0.05) + 
+  scale_fill_manual(values = brewer.pal(n=8, "Set3")[-2]) + 
+  ylab(expression('log'[10]*' library size')) + xlab("batch") + 
+  geom_hline(yintercept = log10(50000), lwd=0.25, lty=2, col="grey") + 
+  ggtitle("total reads in genes") + 
+  th + 
+  theme(legend.position="none")
+plots[[2]] <- ggplot(qc, aes(x=as.factor(meta$batch), y=nGenes/1e3, fill=as.factor(meta$batch), alpha=0.5)) + 
+  geom_violin() + 
+  geom_boxplot(width=0.05) + 
+  scale_fill_manual(values = brewer.pal(n=8, "Set3")[-2]) + 
+  ylab("total genes x1000") + xlab("batch") + 
+  geom_hline(yintercept = 6, lwd=0.25, lty=2, col="grey") + 
+  ggtitle("number of genes detected") + 
+  th + 
+  theme(legend.position="none")
+plots[[3]] <- ggplot(qc, aes(x=as.factor(meta$batch), y=mit/libSize*100, fill=as.factor(meta$batch), alpha=0.5)) + 
+  geom_violin() + 
+  geom_boxplot(width=0.05) + 
+  scale_fill_manual(values = brewer.pal(n=8, "Set3")[-2]) + 
+  ylab("% reads in MT genes") + xlab("batch") + 
+  geom_hline(yintercept = 15, lwd=0.25, lty=2, col="grey") + 
+  ggtitle("% reads in mitochondrial genes") + 
+  th + 
+  theme(legend.position="none")
+plots[[4]] <- ggplot(qc, aes(x=as.factor(meta$batch), y=ercc/libSize*100, fill=as.factor(meta$batch), alpha=0.5)) + 
+  geom_violin(scale="width") + 
+  geom_boxplot(width=0.05) + 
+  scale_fill_manual(values = brewer.pal(n=8, "Set3")[-2]) + 
+  ylab("% reads in spike-ins") + xlab("batch") + 
+  geom_hline(yintercept = 30, lwd=0.25, lty=2, col="grey") + 
+  ggtitle("% reads in ERCC spike-ins") + 
+  th + 
+  theme(legend.position="none")
 
 pdf(paste0(out, "FigS2_QCstats.pdf"), width = 12, height = 3, useDingbats = FALSE)
 ggarrange(plotlist = plots, ncol = 4, nrow = 1)
 dev.off()
 
-## Batch correction
+
+## Batch correction ======
 umap_bb <- read.table(paste0(dir, "results/umapCoords.tab"))
 umap_bb$batch <- paste0("batch_", meta[row.names(umap_bb),]$batch)
 
 order <- sample(row.names(umap_bb), size = nrow(umap_bb), replace = FALSE)
 pdf(paste0(out, "FigS2_UMAPbefore.pdf"), useDingbats = FALSE)
-ggplot(umap_bb[order,], aes(x, y, colour=as.factor(batch))) + geom_point() + scale_color_manual(values = palette(brewer.pal(n=8, "Set3")[-2])) + labs(colour="batch") + xlab("UMAP - dim 1") + ylab("UMAP - dim 2") + th + theme(axis.ticks.x = element_blank(), axis.ticks.y = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank())
+ggplot(umap_bb[order,], aes(x, y, colour=as.factor(batch))) + 
+  geom_point() + 
+  scale_color_manual(values = palette(brewer.pal(n=8, "Set3")[-2])) + 
+  labs(colour="batch") + 
+  xlab("UMAP - dim 1") + ylab("UMAP - dim 2") + 
+  th + 
+  theme(axis.ticks.x = element_blank(), 
+        axis.ticks.y = element_blank(), 
+        axis.text.x = element_blank(), 
+        axis.text.y = element_blank())
 dev.off()
 
 order <- sample(row.names(umap), size = nrow(umap), replace = FALSE)
 pdf(paste0(out, "FigS2_UMAPafter.pdf"), useDingbats = FALSE)
-ggplot(umap[order,], aes(x, y, colour=as.factor(batch))) + geom_point() + scale_color_manual(values = palette(brewer.pal(n=8, "Set3")[-2])) + labs(colour="batch") + xlab("UMAP - dim 1") + ylab("UMAP - dim 2") + th + theme(axis.ticks.x = element_blank(), axis.ticks.y = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank())
+ggplot(umap[order,], aes(x, y, colour=as.factor(batch))) + 
+  geom_point() + 
+  scale_color_manual(values = palette(brewer.pal(n=8, "Set3")[-2])) + 
+  labs(colour="batch") + 
+  xlab("UMAP - dim 1") + ylab("UMAP - dim 2") +
+  th + 
+  theme(axis.ticks.x = element_blank(), 
+        axis.ticks.y = element_blank(), 
+        axis.text.x = element_blank(), 
+        axis.text.y = element_blank())
 dev.off()
 
 
 
+### Figure S3 ###############
 
-### Figure S3
-
-## Marker expression
+## Marker expression ======
 stopifnot(identical(row.names(clusters), row.names(umap)))
 plotGeneOnUMAP <- function(gene="Nkx2-5") {
   id <- row.names(rowData(sce)[rowData(sce)$gene==gene,])
@@ -294,11 +498,32 @@ plotGeneOnUMAP <- function(gene="Nkx2-5") {
   df <- df[order(df$log2.exp),]
   
   plots <- list()
-  plots[[1]] <- ggplot(df, aes(x,y)) + geom_point(aes(colour=log2.exp), alpha = 0.5, cex=1.5) + scale_colour_gradientn(colours = colorRampPalette(c("grey", "lightblue", "dodgerblue4", "royalblue4"))(100)) + ggtitle(gene) + xlab("") + ylab("") + labs(colour=expression('log'[2]*' counts')) + th + theme(axis.ticks.y = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank(), legend.position = "bottom", legend.text.align = 0.5, legend.title.align = 0.5, legend.box.margin=margin(-20,0,0,0)) + guides(colour = guide_colorbar(title.position = "bottom"))
+  plots[[1]] <- ggplot(df, aes(x,y)) + 
+    geom_point(aes(colour=log2.exp), alpha = 0.5, cex=1.5) + 
+    scale_colour_gradientn(colours = colorRampPalette(c("grey", "lightblue", "dodgerblue4", "royalblue4"))(100)) + 
+    ggtitle(gene) + xlab("") + ylab("") + 
+    labs(colour=expression('log'[2]*' counts')) + 
+    th + 
+    theme(axis.ticks.y = element_blank(), 
+          axis.text.x = element_blank(), 
+          axis.text.y = element_blank(), 
+          legend.position = "bottom", 
+          legend.text.align = 0.5, 
+          legend.title.align = 0.5, 
+          legend.box.margin=margin(-20,0,0,0)) + 
+    guides(colour = guide_colorbar(title.position = "bottom"))
   
   df <- data.frame(log2.exp = logcounts(sce)[id,row.names(umap)], cluster=clusters$ann)
   
-  plots[[2]] <- ggplot(df, aes(cluster, log2.exp, fill=cluster)) + geom_boxplot() + scale_fill_manual(values = cols) + xlab("") + ylab(expression('log'[2]*' counts')) + ggtitle(gene) + th + theme(legend.position = "none", axis.text.x = element_text(color = cols, face="bold", size=12, angle=45, vjust=0.5), plot.margin = margin(0.2, 0.2, 1, 0.2, "cm"))
+  plots[[2]] <- ggplot(df, aes(cluster, log2.exp, fill=cluster)) + 
+    geom_boxplot() + 
+    scale_fill_manual(values = cols) + 
+    xlab("") + ylab(expression('log'[2]*' counts')) + 
+    ggtitle(gene) + 
+    th + 
+    theme(legend.position = "none", 
+          axis.text.x = element_text(color = cols, face="bold", size=12, angle=45, vjust=0.5), 
+          plot.margin = margin(0.2, 0.2, 1, 0.2, "cm"))
   ggarrange(plotlist = plots, ncol = 2, nrow = 1, widths = c(0.6,0.4))
 }
 
@@ -322,9 +547,7 @@ plotGeneOnUMAP(gene = "Sox17")
 dev.off()
 
 
-
-
-### Figure S4
+### Figure S4 ###############
 
 pdf(paste0(out, "FigS4_Emcn.pdf"), width = 7, height = 4, useDingbats = FALSE)
 plotGeneOnUMAP(gene = "Emcn")
@@ -339,104 +562,293 @@ plotGeneOnUMAP(gene = "Isl1")
 dev.off()
 
 
+### Figure S5 ###############
 
+## UMAP with classes used for RF ======
+umap.ref$label <- as.character(umap.ref$ann)
+umap.ref[umap.ref$label == "dorsalMesoderm" & umap.ref[,2]>0,]$label <- "dorsalMesoderm_1"
+umap.ref[umap.ref$label == "dorsalMesoderm" & umap.ref[,2]<0,]$label <- "dorsalMesoderm_2"
+umap.ref[umap.ref$label == "caudalPSM" & umap.ref[,2]>0,]$label <- "caudalPSM_13"
+umap.ref[umap.ref$label == "caudalPSM" & umap.ref[,2]<0,]$label <- "caudalPSM_2"
+umap.ref[umap.ref$label == "cardiacMesoderm" & umap.ref$cluster == "cluster2",]$label <- "cardiacMesoderm_2"
+umap.ref[umap.ref$label == "cardiacMesoderm" & umap.ref$cluster != "cluster2",]$label <- "cardiacMesoderm_56"
+umap.ref$label <- as.factor(umap.ref$label)
 
-### Figure S5
-
-pdf(paste0(out, "FigS5_Tbx1.pdf"), width = 7, height = 4, useDingbats = FALSE)
-plotGeneOnUMAP(gene = "Tbx1")
+pdf(paste0(out, "FigS5_UMAP_refData_labels.pdf"), width = 5, height = 5, useDingbats = FALSE)
+plot(umap.ref$V2, umap.ref$V1, 
+     axes=FALSE, 
+     xlab="UMAP_1", ylab="UMAP_2", 
+     col=umap.ref$label, pch=16)
+box(bty="l")
+legend("topleft", legend = levels(umap.ref$label), pch=16, col=1:7)
 dev.off()
 
-pdf(paste0(out, "FigS5_Asb2.pdf"), width = 7, height = 4, useDingbats = FALSE)
-plotGeneOnUMAP(gene = "Asb2")
+## Important genes =====
+forest <- readRDS(paste0(dir, "results/randomForest_referenceCells.Rds"))
+imp.genes <- row.names(forest$importance[order(forest$importance[,7], decreasing = TRUE),][1:50,])
+
+tmp <- sce.ref[,-which(sce.ref$label == "caudalPSM_2")]
+tmp$label <- droplevels(tmp$label)
+
+dat <- logcounts(tmp)[imp.genes,]
+dat <- t(apply(dat, 1, function(x) (x-mean(x))/sd(x)))
+row.names(dat) <- rowData(sce.ref)[row.names(dat),]$gene
+
+labs <- factor(tmp$label, labels = 1:6)
+
+pdf(paste0(out, "FigS5_impGenes_heatmap.pdf"), useDingbats = FALSE)
+heatmap.2(dat, trace="none", col=rev(brewer.pal(n=10, "RdYlBu")), 
+          ColSideColors = as.character(labs), 
+          labCol = NA, 
+          key.title = "", 
+          key.xlab = "z-score", 
+          density.info = "none")
 dev.off()
 
-pdf(paste0(out, "FigS5_Nkx2-5.pdf"), width = 7, height = 4, useDingbats = FALSE)
+
+## Prediction probs =====
+calls <- data.frame(class=labels, 
+                    max.prob=apply(probs, 2, max), 
+                    closest=apply(probs, 2, function(x) max(x[x!=max(x)]) ))
+calls$diff <- calls$max.prob-calls$closest
+calls$pass <- ifelse(calls$diff > 0.15, "yes", "no")
+
+pdf(paste0(out, "FigS5_predictionProbs.pdf"), useDingbats = FALSE)
+ggplot(calls, aes(x=class.V2, y=max.prob, colour=pass)) + 
+  geom_boxplot() + 
+  xlab("class") + ylab("max prob") + 
+  th +
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+dev.off()
+
+
+### Figure S8 ###############
+
+pdf(paste0(out, "FigS8_Nkx2-5.pdf"), width = 7, height = 4, useDingbats = FALSE)
 plotGeneOnUMAP(gene = "Nkx2-5")
 dev.off()
 
-
-
-
-### Figure S6
-
-pdf(paste0(out, "FigS6_Smarcd3.pdf"), width = 7, height = 4, useDingbats = FALSE)
+pdf(paste0(out, "FigS8_Smarcd3.pdf"), width = 7, height = 4, useDingbats = FALSE)
 plotGeneOnUMAP(gene = "Smarcd3")
 dev.off()
 
-pdf(paste0(out, "FigS6_Hand1.pdf"), width = 7, height = 4, useDingbats = FALSE)
+pdf(paste0(out, "FigS8_Hand1.pdf"), width = 7, height = 4, useDingbats = FALSE)
 plotGeneOnUMAP(gene = "Hand1")
 dev.off()
 
-pdf(paste0(out, "FigS6_Snai1.pdf"), width = 7, height = 4, useDingbats = FALSE)
+pdf(paste0(out, "FigS8_Snai1.pdf"), width = 7, height = 4, useDingbats = FALSE)
 plotGeneOnUMAP(gene = "Snai1")
 dev.off()
 
-pdf(paste0(out, "FigS6_Tbx5.pdf"), width = 7, height = 4, useDingbats = FALSE)
+pdf(paste0(out, "FigS8_Tbx5.pdf"), width = 7, height = 4, useDingbats = FALSE)
 plotGeneOnUMAP(gene = "Tbx5")
 dev.off()
 
+pdf(paste0(out, "FigS8_Ttn.pdf"), width = 7, height = 4, useDingbats = FALSE)
+plotGeneOnUMAP(gene = "Ttn")
+dev.off()
 
 
+### Figure S9 ###############
 
-### Figure S7
+pdf(paste0(out, "FigS9_Mab21l2.pdf"), width = 7, height = 4, useDingbats = FALSE)
+plotGeneOnUMAP(gene = "Mab21l2")
+dev.off()
 
-## Me5->Me3 trajectory
+
+### Figure S10 ###############
+
+pdf(paste0(out, "FigS10_diffMap_branches.pdf"), useDingbats = FALSE)
+plot(dpt, root=1, paths_to=c(2,3), col_by="branch", dcs=c(2,-1)) + 
+  th + theme(axis.ticks.y = element_blank(),
+             axis.text.x = element_blank(),
+             axis.text.y = element_blank())
+dev.off()
+
+## Me5->Me3 trajectory ======
 diffMap.me5 <- readRDS(paste0(dir, "results/diffusionMap_me5.Rds"))
+diffMap.me5 <- as.data.frame(diffMap.me5@eigenvectors[,1:2])
+diffMap.me5$ann <- sce[,row.names(diffMap.me5)]$clusterAnn
+diffMap.me5$dpt <- diffMap[row.names(diffMap.me5),]$dpt
+
 dpt.me5 <- readRDS(paste0(dir, "results/diffusionPseudotime_Me5.Rds"))
-sce.Me5 <- sce[,sce$clusterAnn %in% paste0("Me", c(3:6))]
 
 plots <- list()
-plots[[1]] <- ggplot(diffMap.me5, aes(DC1, DC2, colour=sce.Me5$clusterAnn)) + geom_point() + scale_color_manual(values=cols) + labs(colour="pop") + th
-plots[[2]] <- plot(dpt.me5, col_by="branch", root=2, path=c(1,3)) + th
+plots[[1]] <- ggplot(diffMap.me5, aes(DC1, DC2, colour=ann)) + 
+  geom_point() + 
+  scale_color_manual(values=cols) + 
+  labs(colour="pop") + 
+  th + theme(axis.ticks.y = element_blank(),
+             axis.text.x = element_blank(),
+             axis.text.y = element_blank(),
+             legend.position = "bottom")
 
-pdf(paste0(out, "FigSX_DMme5.pdf"), width = 10, height = 4, useDingbats = FALSE)
-ggarrange(plotlist = plots, ncol=2, nrow = 1)
+plots[[2]] <- ggplot(diffMap.me5, aes(DC1, DC2, colour=dpt)) + 
+  geom_point() + 
+  scale_color_gradientn(colours = rev(brewer.pal(n=9, "YlOrBr")[-c(1)])) + 
+  labs(colour="pop") + 
+  th + theme(axis.ticks.y = element_blank(),
+             axis.text.x = element_blank(),
+             axis.text.y = element_blank(),
+             legend.position = "bottom")
+
+plots[[3]] <- plot(dpt.me5, col_by="branch", root=2, path=c(1,3)) + 
+  th + theme(axis.ticks.y = element_blank(),
+             axis.text.x = element_blank(),
+             axis.text.y = element_blank(),
+             legend.position = "bottom")
+
+pdf(paste0(out, "FigS10_DMme5.pdf"), width = 10, height = 4, useDingbats = FALSE)
+ggarrange(plotlist = plots, ncol=3, nrow = 1, align = "h")
 dev.off()
 
-pdf(paste0(out, "FigSX_DMme5_dpt.pdf"), width = 5, height = 4, useDingbats = FALSE)
-ggplot(diffMap.me5, aes(DC1, DC2, colour=dpt.me5$DPT1135)) + geom_point() + scale_color_gradientn(colours = brewer.pal(n=9, "YlOrBr")[-c(1)]) + th
-dev.off()
 
-## Me7->Me3 trajectory
+## Me7->Me3 trajectory ======
 diffMap.me7 <- readRDS(paste0(dir, "results/diffusionMap_me7.Rds"))
+diffMap.me7 <- as.data.frame(diffMap.me7@eigenvectors[,1:2])
+diffMap.me7$ann <- sce[,row.names(diffMap.me7)]$clusterAnn
+diffMap.me7$dpt <- diffMap[row.names(diffMap.me7),]$dpt
+
 dpt.me7 <- readRDS(paste0(dir, "results/diffusionPseudotime_Me7.Rds"))
-sce.Me7 <- sce[,sce$clusterAnn %in% paste0("Me", c(3:4,6:8))]
 
 plots <- list()
-plots[[1]] <- ggplot(diffMap.me7, aes(DC1, DC2, colour=sce.Me7$clusterAnn)) + geom_point() + scale_color_manual(values=cols) + labs(colour="pop") + th
-plots[[2]] <- plot(dpt.me7, col_by="branch", root=2, path=c(1,3)) + th
+plots[[1]] <- ggplot(diffMap.me7, aes(DC1, DC2, colour=ann)) + 
+  geom_point() + 
+  scale_color_manual(values=cols) + 
+  labs(colour="pop") + 
+  th + theme(axis.ticks.y = element_blank(),
+             axis.text.x = element_blank(),
+             axis.text.y = element_blank(),
+             legend.position = "bottom")
 
-pdf(paste0(out, "FigSX_DMme7.pdf"), width = 10, height = 4, useDingbats = FALSE)
-ggarrange(plotlist = plots, ncol=2, nrow = 1)
+plots[[2]] <- ggplot(diffMap.me7, aes(DC1, DC2, colour=dpt)) + 
+  geom_point() + 
+  scale_color_gradientn(colours = rev(brewer.pal(n=9, "YlOrBr")[-c(1)])) + 
+  labs(colour="pop") + 
+  th + theme(axis.ticks.y = element_blank(),
+             axis.text.x = element_blank(),
+             axis.text.y = element_blank(),
+             legend.position = "bottom")
+
+plots[[3]] <- plot(dpt.me7, col_by="branch", root=2, path=c(1,3)) + 
+  th + theme(axis.ticks.y = element_blank(),
+             axis.text.x = element_blank(),
+             axis.text.y = element_blank(),
+             legend.position = "bottom")
+
+pdf(paste0(out, "FigS10_DMme7.pdf"), width = 10, height = 4, useDingbats = FALSE)
+ggarrange(plotlist = plots, ncol=3, nrow = 1, align="h")
 dev.off()
 
-pdf(paste0(out, "FigSX_DMme7_dpt.pdf"), width = 5, height = 4, useDingbats = FALSE)
-ggplot(diffMap.me7, aes(DC1, DC2, colour=dpt.me7$DPT1161)) + geom_point() + scale_color_gradientn(colours = brewer.pal(n=9, "YlOrBr")[-c(1)]) + th
-dev.off()
 
-## relationship with stage
+## relationship with stage ======
 diffMap$stage <- sce[,row.names(diffMap)]$stage
 
-pdf(paste0(out, "FigSX_perStage.pdf"), width = 7, height = 4.5, useDingbats = FALSE)
-ggplot(diffMap, aes(DC2, DC1, colour=stage)) + geom_point(size=1, alpha=0.5) + scale_color_manual(values = brewer.pal(n=8, "Blues")[-c(1:2)]) + facet_wrap(~stage) + th + theme(legend.position = "none", axis.text = element_blank(), axis.ticks = element_blank(), axis.line = element_blank())
+pdf(paste0(out, "FigS10_perStage.pdf"), width = 7, height = 4.5, useDingbats = FALSE)
+ggplot(diffMap, aes(DC2, -DC1, colour=stage)) + 
+  geom_point(size=1, alpha=0.5) + 
+  scale_color_manual(values = brewer.pal(n=8, "Blues")[-c(1:2)]) + 
+  facet_wrap(~stage) + 
+  th + 
+  theme(legend.position = "none", 
+        axis.text.x = element_blank(), 
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank())
 dev.off()
 
 plots <- list()
-plots[[1]] <- ggplot(diffMap, aes(DC1, colour=stage)) + geom_density() + ylim(c(0,70)) + scale_color_manual(values = brewer.pal(n=8, "Blues")[-c(1:2)]) + th + theme(axis.text = element_blank(), axis.ticks = element_blank())
-plots[[2]] <- ggplot(diffMap, aes(DC2, colour=stage)) + geom_density() + ylim(c(0,120)) + scale_color_manual(values = brewer.pal(n=8, "Blues")[-c(1:2)]) + th + theme(axis.text = element_blank(), axis.ticks = element_blank())
-plots[[3]] <- ggplot(diffMap, aes(DC1)) + geom_density() + ylim(c(0,70)) + th + theme(axis.text = element_blank(), axis.ticks = element_blank())
-plots[[4]] <- ggplot(diffMap, aes(DC2)) + geom_density() + ylim(c(0,120)) + th + theme(axis.text = element_blank(), axis.ticks = element_blank())
+plots[[1]] <- ggplot(diffMap, aes(-DC1, fill=stage, alpha=0.5)) + 
+  geom_density() + 
+  ylim(c(0,80)) + 
+  scale_fill_manual(values = brewer.pal(n=8, "Blues")[-c(1:2)]) + 
+  th + 
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank())
+plots[[2]] <- ggplot(diffMap, aes(DC2, fill=stage, alpha=0.5)) + 
+  geom_density() + 
+  ylim(c(0,50)) + 
+  scale_fill_manual(values = brewer.pal(n=8, "Blues")[-c(1:2)]) + 
+  th + 
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank())
+plots[[3]] <- ggplot(diffMap, aes(-DC1, fill="black", alpha=0.5)) + 
+  geom_density() + 
+  ylim(c(0,80)) + 
+  th + 
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank())
+plots[[4]] <- ggplot(diffMap, aes(DC2, fill="black", alpha=0.5)) + 
+  geom_density() + 
+  ylim(c(0,50)) + 
+  th + 
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank())
 
-pdf(paste0(out, "FigSX_perStage_density.pdf"), width = 7, height = 7, useDingbats = FALSE)
+pdf(paste0(out, "FigS10_perStage_density.pdf"), width = 7, height = 7, useDingbats = FALSE)
 ggarrange(plotlist = plots, ncol = 2, nrow = 2)
 dev.off()
 
 
+### Figure S11 ###############
+
+pdf(paste0(out, "FigS10_Tbx1.pdf"), width = 7, height = 4, useDingbats = FALSE)
+plotGeneOnUMAP(gene = "Tbx1")
+dev.off()
+
+pdf(paste0(out, "FigS10_Asb2.pdf"), width = 7, height = 4, useDingbats = FALSE)
+plotGeneOnUMAP(gene = "Asb2")
+dev.off()
+
+pdf(paste0(out, "FigS10_Nkx2-5.pdf"), width = 7, height = 4, useDingbats = FALSE)
+plotGeneOnUMAP(gene = "Nkx2-5")
+dev.off()
 
 
+##########
+### Figure for shiny app
+## Combination of marker genes used to identify clusters in staining experiments
+sce.cardiac <- sce[,sce$clusterAnn %in% paste0("Me",3:8)]
+sce.cardiac <- sce.cardiac[,-which(reducedDim(sce.cardiac)[,2]>5)] # remove outlier cell
 
+## markers that differentiate between all cardiac clusters
+m <- c("Fst", "Tbx1", "Vsnl1", "Fsd2", "Nkx2-5", "Mab21l2", "Asb2")
+m <- row.names(rowData(sce.cardiac)[rowData(sce.cardiac)$gene %in% m, ])
+df <- reducedDim(sce.cardiac)
+df <- cbind(df, t(logcounts(sce.cardiac)[m,]))
+colnames(df)[4:10] <- rowData(sce)[colnames(df)[4:10],]$gene
 
-
-
-
+cols <- hcl.colors(n=6, palette = "Viridis")
+cols <- c("#6D187C","grey",cols[-1])
+plots <- list()
+for(i in 4:10){
+  plots[[i-3]] <- ggplot(df, aes(x, y)) + 
+    # geom_point(colour="lightgrey", alpha = 0.5, size = 1) +
+    stat_density_2d(data=df[df[,i]>1,], aes(x, y, alpha=..level..),
+                    fill = cols[i-3], 
+                    size = 2, bins = 10, geom = 'polygon') +
+    xlim(c(-10, -2.5)) + ylim(c(-7, 4)) +
+    ggtitle(colnames(df)[i]) + xlab("") + ylab("") +
+    th + theme(axis.text.x = element_blank(),
+               axis.text.y = element_blank(),
+               axis.ticks.y = element_blank(),
+               legend.position = "none",
+               panel.background = element_rect(fill = "transparent"),
+               plot.background = element_rect(fill = "transparent", color = NA))
+}
+plots[[8]] <- ggplot(df, aes(x, y)) + 
+  geom_point(colour="lightgrey", alpha = 0.5, size = 1) +
+  xlim(c(-10, -2.5)) + ylim(c(-7, 4)) +
+  ggtitle("All") + xlab("") + ylab("") +
+  th + theme(axis.text.x = element_blank(),
+             axis.text.y = element_blank(),
+             axis.ticks.y = element_blank(),
+             legend.position = "none",
+             panel.background = element_rect(fill = "transparent"),
+             plot.background = element_rect(fill = "transparent", color = NA))
+pdf(paste0(out, "clusterStainingMarkers.pdf"), width = 12, height = 6, useDingbats = FALSE)
+ggarrange(plotlist = plots, ncol=4, nrow=2)
+dev.off()

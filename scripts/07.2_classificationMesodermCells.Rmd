@@ -1,0 +1,417 @@
+---
+title: "<span style='font-size: 28px'>Single-cell RNAseq of mouse heart development</style>"
+date: '`r format(Sys.time(), "%d %B, %Y")`'
+output:
+  html_document:
+    keep_md: true
+    fig_width: 5
+    fig_height: 5
+    fig_caption: yes
+    code_folding: hide
+    toc: true
+    toc_depth: 4
+    toc_float: 
+      collapsed: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(scran)
+library(scater)
+library(RColorBrewer)
+library(dynamicTreeCut)
+library(randomForest)
+library(caret)
+library(e1071)
+library(gplots)
+library(scales)
+
+dir <- "/Users/ibarra01/OneDrive - CRUK Cambridge Institute/github/mouseHeart_earlyDev_atlas/"
+
+palette(brewer.pal(n=12, "Set3")[-c(1:2)])
+
+## cluster colours
+cols <- c(Ec1 = "#ec6646", Ec2 = "#af4424", En1 = "#3c537c", En2 = "#768ba5",
+          Me1 = "#bf9a77", Me2 = "#debc95", Me3 = "#556dad", Me4 = "#f28a31",
+          Me5 = "#729f3c", Me6 = "#fbba14", Me7 = "#5fa398", Me8 = "#9FD3C5")
+```
+
+### Classification of cardiac mesoderm cells
+
+The single-cell data from anatomically distinct mesoderm regions (`reference` dataset) can help us understand better the differences observed in the clusters of cardiac mesoderm progenitor cells from the `unbiased` dataset. 
+
+* `Me7` and `Me8` both show a SHF signature, like `Me6`, and contain the most undifferentiated SHF progenitors. However, both clusters have specific expression of some genes, suggesting they are transcriptionally different and, perhaps, have different likelihoods of committing to the cardiac lineage. 
+* In contrast, `Me5` cells express both FHF and SHF markers, and do not express *Nkx2-5*, the canonical marker of the cardiac lineage. 
+
+Low dimensional representation of this `reference` dataset, where cells are labeled based on their anatomical location within the embryo, suggests several subpopulations, some of which are quite distinct. Since the cells labeled as cardiac mesoderm split into two well separated clusters, it is possible that there was some contamination from the adjacent endoderm when dissecting out the cardiac mesoderm.
+
+```{r loadData}
+## unbiased dataset
+sce <- readRDS(paste0(dir, "data/sce_goodQual.NORM.clusters.Rds"))
+sce.batch <- readRDS(paste0(dir, "data/sce_goodQual.NORM.batchCorrected.Rds"))
+hvgs <- read.table(paste0(dir, "results/HVGs_minMean1_FDR0.05.tsv"), stringsAsFactors = FALSE)
+hvgs <- hvgs$V1
+
+## remove outlier cell from batch-corrected data
+sce.batch <- sce.batch[,-which(colnames(sce.batch) == setdiff(colnames(sce.batch), colnames(sce)))]
+stopifnot(identical(colnames(sce), colnames(sce.batch)))
+
+## reference dataset
+sce.ref <- readRDS(paste0(dir, "data/sce_referenceCells_goodQual.NORM.Rds"))
+hvgs.ref <- read.table(file=paste0(dir, "results/HVGs_referenceCells_minMean1_FDR0.05.tsv"), stringsAsFactors = FALSE)
+hvgs.ref <- hvgs.ref$V1
+
+# restrinct HVGs to genes expressed in both datasets
+hvgs <- intersect(hvgs, row.names(sce.ref))
+hvgs.ref <- intersect(hvgs.ref, row.names(sce))
+
+# umap
+plot(reducedDim(sce.ref)[,1], reducedDim(sce.ref)[,2], pch=16, col=as.factor(sce.ref$regionAnn), xlab="", ylab="", axes=FALSE)
+box(bty="l"); mtext(side=1, line=1, text = "UMAP - dim1"); mtext(side=2, line=1, text = "UMAP - dim2")
+legend("topright", legend = levels(as.factor(sce.ref$regionAnn)), col=1:4, pch=16, cex=0.75)
+```
+
+To get an insight into the identity of the `reference cells` we compare them to the `unbiased cells`, which we have characterised extensively. We compute a PCA of the `unbiased` data and project the `reference` cells onto it.
+
+PC1 separates cells according to their germ layer identity: mesoderm -> ectoderm -> endoderm. PC2 separates the different subpopulations from each germ layer; for the mesoderm cells, going from most differentiated (`Me3`) to most naïve (`Me5` and `Me7`-`Me8`).
+
+```{r pca, fig.width=10}
+## unbiased, batch-corrected data, for HVGs
+dat <- assay(sce.batch, 'reconstructed')[hvgs,]
+
+## equivalent data for reference cells
+ref <- logcounts(sce.ref)[hvgs,]
+
+## PCA of unbiased cells
+pca <- prcomp(t(dat))
+# project reference onto it
+avg <- rowMeans(dat)
+matrix <- pca$rotation
+test <- as.matrix(ref-avg)
+proj.ref <- t(matrix) %*% test
+
+par(mfrow=c(1,2))
+plot(pca$x[,1], pca$x[,2], pch=16, col=sce$clusterCol, cex=0.75, xlab="", ylab="", bty="L", main="UNBIASED data", axes=FALSE); box(bty="l"); mtext(side=1, line=1, "PC1"); mtext(side=2, line=1, "PC2")
+legend("topleft", legend=names(cols), pch=16, col=cols, cex=0.65)
+plot(proj.ref[1,], proj.ref[2,], col=as.factor(sce.ref$regionAnn), pch=16, xlab="", ylab="", bty="L", main="REFERENCE data", axes=FALSE); box(bty="l"); mtext(side=1, line=1, "PC1"); mtext(side=2, line=1, "PC2")
+legend("topleft", legend = levels(as.factor(sce.ref$regionAnn)), col=1:4, pch=16, cex=0.65)
+```
+
+As suspected, the cardiac mesoderm `reference` cells are split between cardiac mesoderm cells and endoderm cells. The other mesoderm `reference` cells map to the most undifferentiated cardiac progenitors. 
+
+Some cells also map to the `Me1` and `Me2` subpopulations, which correspond to blood and endothelial cells.
+
+```{r blood, fig.width=10}
+par(mfrow=c(1,2))
+plot(pca$x[,1], pca$x[,4], pch=16, col=sce$clusterCol, cex=0.75, xlab="", ylab="", bty="L", main="UNBIASED data", axes=FALSE); box(bty="l"); mtext(side=1, line=1, "PC1"); mtext(side=2, line=1, "PC4")
+legend("bottomleft", legend=names(cols), pch=16, col=cols, cex=0.65)
+plot(proj.ref[1,], proj.ref[4,], col=as.factor(sce.ref$regionAnn), pch=16, xlab="", ylab="", bty="L", main="REFERENCE data", axes=FALSE); box(bty="l"); mtext(side=1, line=1, "PC1"); mtext(side=2, line=1, "PC4")
+legend("bottomleft", legend = levels(as.factor(sce.ref$regionAnn)), col=1:4, pch=16, cex=0.65)
+```
+
+Since we are interested in identifying the differences between the mesodermal regions, we remove the endoderm, blood and endothelial cells.
+
+#### Removing 'contaminating' cells from the `reference` dataset
+
+Although it is pretty straight forward to identify which `reference` cells are endoderm cells, it is less well defined which are blood and endothelial, versus SHF progenitor cells. Instead of simply using the PCA projection, we cluster the `reference` data, since endoderm, blood and endothelial cells should have distinct transcriptomes and create their own separate clusters.
+
+Seven clusters are identified, with clusters 4 and 7 separating from the rest of the cells in the UMAP representation. The clusters agree quite well with the anatomical region labels. 
+
+```{r cluster, fig.width=10}
+## use the distance between cells to identify clusters
+dat <- logcounts(sce.ref)[hvgs.ref,]
+test.dist <- dist(t(dat))
+
+## define clusters by hierarchical clustering and dynamic tree cut
+test.clust <- hclust(test.dist, method="average")
+cut <- cutreeDynamic(test.clust, distM=as.matrix(test.dist), minClusterSize=10, method="hybrid", deepSplit = 1, verbose = 0)
+sce.ref$cluster <- paste0("cluster",cut)
+
+names(cut) <- colnames(dat)
+write.table(cut, paste0(dir, "results/clusters_referenceCells_average_min10.tsv"), quote = FALSE, sep="\t", col.names = FALSE)
+
+## plot on UMAP representation
+umap <- as.data.frame(reducedDim(sce.ref))
+stopifnot(identical(names(cut), row.names(umap)))
+umap$cluster <- as.factor(sce.ref$cluster)
+umap$ann <- as.factor(sce.ref$regionAnn)
+
+par(mfrow=c(1,2))
+plot(umap[,1], umap[,2], pch=16, cex=0.75, col=umap$cluster, xlab="", ylab="", main="clusters", axes=FALSE)
+box(bty="l"); mtext(side=1, line=1, text = "UMAP - dim1"); mtext(side=2, line=1, text = "UMAP - dim2")
+legend("topright", legend = levels(umap$cluster), col=1:length(levels(umap$cluster)), pch=16, cex=0.85)
+
+plot(umap[,1], umap[,2], pch=16, cex=0.75, col=umap$ann, xlab="", ylab="", main="anatomical regions", axes=FALSE)
+box(bty="l"); mtext(side=1, line=1, text = "UMAP - dim1"); mtext(side=2, line=1, text = "UMAP - dim2")
+legend("topright", legend = levels(umap$ann), col=1:length(levels(umap$ann)), pch=16, cex=0.85)
+```
+
+And, indeed, when we colour the cells in the PCA projection according to these clusters, we see good agreement of the `cluster4` cells matching the `unbiased` endoderm cells, and `cluster7` the `unbiased` blood and endothelial cells.
+
+```{r pca_clusters, fig.width=10}
+par(mfrow=c(1,2))
+plot(proj.ref[1,], proj.ref[2,], col=umap$cluster, pch=16, xlab="", ylab="", bty="L", axes=FALSE)
+points(proj.ref[1,which(umap$cluster=="cluster4")], proj.ref[2,which(umap$cluster=="cluster4")])
+box(bty="l"); mtext(side=1, line=1, "PC1"); mtext(side=2, line=1, "PC2")
+plot(proj.ref[1,], proj.ref[4,], col=umap$cluster, pch=16, xlab="", ylab="", bty="L", axes=FALSE)
+points(proj.ref[1,which(umap$cluster=="cluster7")], proj.ref[4,which(umap$cluster=="cluster7")])
+box(bty="l"); mtext(side=1, line=1, "PC1"); mtext(side=2, line=1, "PC4")
+```
+
+Thus, we can remove the cells from clusters 4 and 7 to retain only the intended mesodermal cells in the `reference` dataset.
+
+There is one cell from cluster1 that in the UMAP groups with cells from cluster7. We remove it also to be on the safe side.
+
+```{r contaminants}
+## identify the cluster1 cell clustering with cluster7
+outlier <- row.names(umap)[which(umap$V1>2 & umap$V2>2 & umap$cluster == "cluster1")]
+
+## remove cells from clusters 4 and 7
+contamination <- c(row.names(umap[umap$cluster %in% paste0("cluster", c(4,7)),]), outlier)
+# table(umap[contamination,]$cluster) 
+# table(umap[-which(row.names(umap) %in% contamination),]$cluster)
+# confirm all cluster4 and 7, plus one cluster1 cell are removed; all cluster2,3,5,6 and 1 are retained
+```
+
+Thus, we remove `r length(contamination)` cells. This leaves us around 60 cells from each anatomical region, except the dorsal mesoderm that has 94.
+
+```{r cleanup}
+sce.ref <- sce.ref[,setdiff(colnames(sce.ref), contamination)]
+table(sce.ref$regionAnn)
+```
+
+
+#### Random forest of the `reference` dataset
+
+To annotate the cells from the `unbiased` dataset, we can use the `reference` cells to build a random forest classifier, since we know their anatomical location.
+
+However, the results from the clustering suggest that some of the anatomical labels contain heterogeneous populations. For example, the dorsal mesoderm cells are split between clusters 1 and 2, suggesting they are two transcriptionally different subtypes. And this is true also for all but the cranial mesoderm populations.
+
+```{r fig.width=10}
+## plot on UMAP representation
+umap <- as.data.frame(reducedDim(sce.ref))
+umap$cluster <- as.factor(sce.ref$cluster)
+umap$ann <- as.factor(sce.ref$regionAnn)
+
+par(mfrow=c(1,2))
+plot(umap[,1], umap[,2], pch=16, cex=0.75, col=umap$cluster, xlab="", ylab="", main="clusters", axes=FALSE)
+box(bty="l"); mtext(side=1, line=1, text = "UMAP - dim1"); mtext(side=2, line=1, text = "UMAP - dim2")
+legend("bottomright", legend = levels(umap$cluster), col=1:length(levels(umap$cluster)), pch=16, cex=0.85)
+
+plot(umap[,1], umap[,2], pch=16, cex=0.75, col=umap$ann, xlab="", ylab="", main="anatomical regions", axes=FALSE)
+box(bty="l"); mtext(side=1, line=1, text = "UMAP - dim1"); mtext(side=2, line=1, text = "UMAP - dim2")
+legend("bottomright", legend = levels(umap$ann), col=1:length(levels(umap$ann)), pch=16, cex=0.85)
+```
+
+```{r concordance}
+table(umap$cluster, umap$ann)
+```
+
+It is probably a better approach to use labels that integrate both pieces of information. So we split all groups except the cranial mesoderm, depending on their clustering. We also take clusters 5 and 6 as a single group.
+
+```{r labels}
+umap$label <- as.character(umap$ann)
+umap[umap$label == "dorsalMesoderm" & umap[,2]>0,]$label <- "dorsalMesoderm_1"
+umap[umap$label == "dorsalMesoderm" & umap[,2]<0,]$label <- "dorsalMesoderm_2"
+umap[umap$label == "caudalPSM" & umap[,2]>0,]$label <- "caudalPSM_13"
+umap[umap$label == "caudalPSM" & umap[,2]<0,]$label <- "caudalPSM_2"
+umap[umap$label == "cardiacMesoderm" & umap$cluster == "cluster2",]$label <- "cardiacMesoderm_2"
+umap[umap$label == "cardiacMesoderm" & umap$cluster != "cluster2",]$label <- "cardiacMesoderm_56"
+umap$label <- as.factor(umap$label)
+
+stopifnot(identical(row.names(umap), colnames(sce.ref)))
+sce.ref$label <- umap$label
+
+
+palette(hue_pal()(7))
+plot(umap[,1], umap[,2], pch=16, cex=0.75, col=umap$label, xlab="", ylab="", main="labels", axes=FALSE)
+box(bty="l"); mtext(side=1, line=1, text = "UMAP - dim1"); mtext(side=2, line=1, text = "UMAP - dim2")
+legend("bottomright", legend = levels(umap$label), col=1:length(levels(umap$label)), pch=16, cex=0.85)
+```
+
+Most groups have a decent number of cells, except for the `caudalPSM_2` group that has only 8 cells, and thus are removed.
+
+```{r labels_num}
+table(sce.ref$label)
+saveRDS(sce.ref, paste0(dir, "data/sce_referenceCells_goodQual_clean.NORM.clusters.Rds"))
+```
+
+We build the random forest using the expression of highly variable genes. To train the model, we use 70% of the data (around `r ceiling(ncol(sce.ref)*0.7)` cells) and we leave out the rest for validation. We use 10-fold cross validation to optimise the parameters controlling the number of genes randomly selected during each split (`mtry`) and the number of trees grown (`ntree`).
+
+```{r randomForest}
+## remove caudalPSM_2 cells
+sce.ref <- sce.ref[,-which(sce.ref$label == "caudalPSM_2")]
+sce.ref$label <- droplevels(sce.ref$label)
+
+## use log counts of HVGs
+dat <- logcounts(sce.ref)[hvgs.ref,]
+
+## modify palette accordingly
+palette(hue_pal()(7)[-4])
+
+## split into training and test sets
+set.seed(394)
+split <- createDataPartition(y = sce.ref$label, p=0.7, list = FALSE)
+training <- dat[,split]
+validation <- dat[,-split]
+
+# https://www.guru99.com/r-random-forest-tutorial.html
+## set cross validation approach
+trControl <- trainControl(method = "cv", number = 10, search = "grid") # 10-fold cross validation
+
+## random forest with default parameters
+set.seed(394)
+rf_default <- train(x = t(training), y = sce.ref[,colnames(training)]$label, method = "rf", metric = "Accuracy", trControl = trControl)
+
+## optimise mtry
+tuneGrid <- expand.grid(.mtry = c(seq(20,100,5), 200, 500, 750, 1000))
+set.seed(394)
+rf_mtry <- train(x = t(training), y = sce.ref[,colnames(training)]$label, method = "rf", metric = "Accuracy", tuneGrid = tuneGrid, trControl = trControl)
+# rf_mtry
+best_mtry <- rf_mtry$bestTune$mtry 
+tuneGrid <- expand.grid(.mtry = best_mtry)
+
+## optimise number of trees
+store_maxtrees <- list()
+for(ntree in c(100, 150, seq(250, 2000, 250))){
+    set.seed(394)
+    rf_maxtrees <- train(x = t(training), y = sce.ref[,colnames(training)]$label, method = "rf", metric = "Accuracy", tuneGrid = tuneGrid, trControl = trControl, ntree = ntree)
+    key <- toString(ntree)
+    store_maxtrees[[key]] <- rf_maxtrees
+}
+results_tree <- resamples(store_maxtrees)
+# summary(results_tree)
+# boxplot(results_tree$values[,seq(2,18,2)], las=2, names=substr(colnames(results_tree$values)[seq(2,18,2)], 1, 4))
+best_ntree <- 750
+```
+
+The optimal parameter for `mtry` is `r best_mtry` (the suggested default was `r sqrt(nrow(dat))`). And the optimal number of trees is `r best_ntree` with no increases in accuracy observed with higher values. We build a random forest on the training data using these parameters.
+
+The accuracy of the random forest on the validation set is:
+
+```{r randomForest_opt}
+## random forest with optimal parameters
+set.seed(394)
+rf_opt <- randomForest(x = t(training), y = sce.ref[,colnames(training)]$label, ntree = best_ntree, mtry = best_mtry, importance = TRUE)
+
+## evaluate on validation set
+prediction <- predict(rf_opt, t(validation))
+conf <- confusionMatrix(prediction, sce.ref[,colnames(validation)]$label)
+
+paste0('Accuracy : ', round(conf$overall[1],4))
+paste0('95% CI : (', round(conf$overall[3],4), ', ', round(conf$overall[4],4),')')
+```
+
+Most groups achieve high accuracy but the `cardiacMesoderm_2`, which has a missclassification rate of 50%.
+
+```{r confusion, fig.width=7, fig.height=7}
+tmp <- as.matrix(table(prediction, sce.ref[,colnames(validation)]$label))
+heatmap.2(t(t(tmp)/colSums(tmp))*100, trace="none", cexRow=0.85, cexCol = 0.85, Rowv = FALSE, Colv = FALSE, col=brewer.pal(n=9, name="Blues"), dendrogram = "none", density.info = "none", key.title = "", key.xlab = "% correct", margins = c(8,8), main="prediction of validation dataset", cellnote = round( t(t(tmp)/colSums(tmp))*100, 2 ), notecol="white")
+```
+
+However, this group has the lowest number of cells and few in the validation dataset:
+
+```{r validation_num}
+table(sce.ref[,colnames(validation)]$label)
+```
+
+The accuracy estimated from the predictions on the training dataset itself, shows that the `cardiacMesoderm_2` does ok, with 76% correct predictions.
+
+```{r confusion_training, fig.width=7, fig.height=7}
+tmp <- t(rf_opt$confusion[,-ncol(rf_opt$confusion)])
+heatmap.2(t(t(tmp)/colSums(tmp))*100, trace="none", cexRow=0.85, cexCol = 0.85, Rowv = FALSE, Colv = FALSE, col=brewer.pal(n=9, name="Blues"), dendrogram = "none", density.info = "none", key.title = "", key.xlab = "% correct", margins = c(8,8), main="prediction of training dataset", cellnote = round( t(t(tmp)/colSums(tmp))*100, 2 ), notecol="white")
+```
+
+Finally, we can inspect the genes that are most important to discriminate the different groups. A few dozen genes are sufficient to segregate the groups fairly well. Among these are well-known markers that differentiate the mesoderm types, such as *Cyp26c1* specifically expressed in cranial mesoderm, or actins and myosins, present in the cardiac mesoderm groups, with higher expression correlating to more mature cells (group 56 compared to 2). 
+
+```{r importantGenes, fig.width=8, fig.height=8}
+imp.genes <- row.names(rf_opt$importance[order(rf_opt$importance[,7], decreasing = TRUE),][1:50,])
+
+dat <- logcounts(sce.ref)[imp.genes,]
+dat <- t(apply(dat, 1, function(x) (x-mean(x))/sd(x)))
+row.names(dat) <- rowData(sce.ref)[row.names(dat),]$gene
+
+labs <- factor(sce.ref$label, labels = 1:6)
+heatmap.2(dat, trace="none", col=rev(brewer.pal(n=10, "RdYlBu")), ColSideColors = as.character(labs), labCol = NA, key.title = "", key.xlab = "z-score", density.info = "none")
+```
+
+
+#### Annotation of the `unbiased` dataset
+
+Now we use the random forest to classify the cells from the cardiac mesoderm clusters in the `unbiased` dataset.
+
+The majority of cells are assigned to one class with high confidence; over half of all cells have 50% or more of the trees in the classifier arriving to the same label. And, importantly, for the majority of the cells, the second highest selected class tends to be much less prevalent than the assigned class; that is, for half of all cells, the winning label has at least 30% more votes than the second highest label.
+
+```{r classify, fig.width=10}
+## select cells in cardiac mesoderm clusters
+cells <- colnames(sce[,sce$clusterAnn %in% paste0("Me",3:8)])
+unbiased <- logcounts(sce[hvgs.ref,cells])
+
+## classify with the random forest
+predictions <- predict(rf_opt, t(unbiased))
+# plot(reducedDim(sce[,cells])[,1], reducedDim(sce[,cells])[,2], pch=16, col=predictions)
+# legend("topleft", legend = levels(predictions), col=1:6, pch=16)
+
+## check assigned probabilities
+predictions.prob <- t(predict(rf_opt, t(unbiased), type="prob"))
+
+calls <- data.frame(class=predictions, max.prob=apply(predictions.prob, 2, max), closest=apply(predictions.prob, 2, function(x) max(x[x!=max(x)]) ))
+calls$diff <- calls$max.prob-calls$closest
+
+par(mfrow=c(1,2))
+boxplot(calls$max.prob, notch=TRUE, main="probability of assigned label", ylim=c(0,1))
+abline(h=seq(0.25, 0.75, 0.25), col="lightgrey")
+boxplot(calls$diff, notch=TRUE, main="difference in probability between the top two labels", ylim=c(0,1))
+abline(h=seq(0.25, 0.75, 0.25), col="lightgrey")
+```
+
+Nonetheless, there are some cells where the top two classes received similar amounts of votes from the forest and thus we cannot be confident about the predicted label. We filter out all the cells with a difference between the two highest classes smaller than 15%. This removes a third of the cells.
+
+```{r filter}
+calls$pass <- ifelse(calls$diff > 0.15, 1, 0)
+round(table(calls$pass)/nrow(calls)*100, 2)
+```
+
+From the confidently classified cells, the majority are assigned a cardiac mesoderm phenotype, as expected. However, the SHF progenitors are heterogeneous and the most naïve cells in `Me7-8` are assigned to cranial and dorsal mesoderm phenotypes.
+
+```{r calls, fig.width=10}
+par(mfrow=c(1,2))
+plot(reducedDim(sce)[,1], reducedDim(sce)[,2], pch=16, col="grey50", cex=0.85, axes=FALSE, xlab="", ylab="", main="classification of unbiased cells"); box(bty="l")
+points(reducedDim(sce[,row.names(calls[calls$pass==0,])])[,1], reducedDim(sce[,row.names(calls[calls$pass==0,])])[,2], pch=16, col="grey90", cex=0.85)
+points(reducedDim(sce[,row.names(calls[calls$pass==1,])])[,1], reducedDim(sce[,row.names(calls[calls$pass==1,])])[,2], pch=16, col=predictions[row.names(calls[calls$pass==1,])], cex=0.85)
+legend("bottomright", legend = c(levels(predictions), "undecided", "not_classified"), pch=16, col=c(1:6, "lightgrey", "grey50"), cex=0.75)
+
+umap <- umap[colnames(sce.ref),]
+umap$label <- droplevels(umap$label)
+plot(umap[,1], umap[,2], pch=16, cex=0.85, col=umap$label, xlab="", ylab="", main="reference cells", axes=FALSE)
+box(bty="l")
+legend("bottomright", legend = levels(umap$label), col=1:length(levels(umap$label)), pch=16, cex=0.75)
+```
+
+The differentiating progenitors of `Me4` and `Me6`, together with the mature cardiomyocytes from `Me3` are almost exclusively assigned to the class of `cadiacMesoderm_56 reference` cells, which corresponds to the cluster that showed increased expression of maturity markers. 
+
+The progenitors from `Me5` instead have a majority of cells assigned to the `cardiacMesoderm_2` group that was less mature, consistent with their more undifferentiated nature. However, many cells were still assigned a more mature phenotype (`cardiacMesoderm_56`) and others a `dorsalMesoderm_2` label, which in the `reference` dataset cluster next to the immature cardiac mesoderm cells. 
+
+The most undifferentiated SHF progenitors from `Me8` are predominantly assigned a `cranialMesoderm` label, and some to the `dorsalMesoderm_1` class, which is the subset of dorsal cells that cluster with the caudal PSM cells. In contrast, the `Me7` SHF progenitor cells are assigned to a `dorsalMesoderm_2` class, which clusters with the immature cardiac mesoderm cells.
+
+```{r class_perCluster, fig.width=5, fig.height=5}
+# classes by cluster
+tmp <- as.matrix(table(sce[,row.names(calls[calls$pass==1,])]$clusterAnn, predictions[row.names(calls[calls$pass==1,])]))
+tmp <- tmp/rowSums(tmp)
+
+heatmap.2(tmp*100, trace="none", col=brewer.pal(n=9, "Purples"), margins = c(8,5), cellnote = round(tmp*100,2), notecol="white", Rowv = FALSE, dendrogram = "col", cexRow = 0.85, cexCol = 0.85, key.title = "", key.xlab = "", density.info = "none")
+```
+
+
+```{r save}
+saveRDS(rf_opt, paste0(dir, "results/randomForest_referenceCells.Rds"))
+
+write.table(predictions, paste0(dir, "results/classesUnbiasedMe3-8.randForest.tsv"), quote = FALSE, sep="\t", col.names = FALSE)
+write.table(predictions.prob, paste0(dir, "results/classesUnbiasedMe3-8.randForest.probs.tsv"), quote = FALSE, sep="\t")
+```
+
+
+```{r info}
+sessionInfo()
+```
+

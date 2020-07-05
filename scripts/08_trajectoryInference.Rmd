@@ -87,16 +87,42 @@ plots[[2]] <- plotGeneOnUMAP(umap = reducedDim(sce), data = sce, gene = "Isl1")
 ggarrange(plotlist = plots, ncol = 2, nrow = 1)
 ```
 
-We will use a diffusion map approach to study the differentiation trajectories from the progenitor populations towards cardiomyocytes.
+We have also observed that the clusters of progenitor cells have transcriptional signatures consistent with different types of mesoderm (see `07.2_classificationMesodermCells.Rmd`). Particularly, cells from the `Me8` cluster mostly resemble cranial and presomitic mesoderm, instead of cardiac mesoderm.
+
+```{r mesodermTypes}
+labels <- read.table(paste0(dir, "results/classesUnbiasedMe3-8.randForest.tsv"))
+probs <- read.table(paste0(dir, "results/classesUnbiasedMe3-8.randForest.probs.tsv"))
+
+calls <- data.frame(class=labels, max.prob=apply(probs, 2, max), closest=apply(probs, 2, function(x) max(x[x!=max(x)]) ))
+calls$diff <- calls$max.prob-calls$closest
+calls$pass <- ifelse(calls$diff > 0.15, 1, 0)
+
+umap <- reducedDim(sce)
+umap$class <- labels[match(row.names(umap), labels$V1),2]
+umap$pass <- ifelse(row.names(umap) %in% row.names(calls[calls$pass==1,]), 1, 0)
+
+order <- sample(row.names(umap[umap$pass==1,]))
+plot(umap$x, umap$y, pch=16, col="lightgrey", axes=FALSE, xlab="", ylab="", xlim=c(-12,0), ylim=c(-7,4))
+points(umap[umap$pass==0 & !is.na(umap$class),]$x, umap[umap$pass==0 & !is.na(umap$class),]$y, pch=16, col="grey")
+points(umap[umap$pass==1,][order,]$x, umap[umap$pass==1,][order,]$y, pch=16, col=umap[umap$pass==1,][order,]$class)
+box(bty="l")
+legend("topleft", legend = levels(as.factor(umap$class)), pch=16, col=1:6)
+
+```
+
+We can use diffusion maps to study the differentiation trajectories from the progenitor populations towards cardiomyocytes. We exclude the `Me8` cells, given their distinct, non-cardiac, phenotype, and the cells from `Me7` that are assigned a cranial mesoderm signature.
 
 ```{r cardiacMesoderm}
-## select only cells in cardiac clusters
-sce.cardiac <- sce[,sce$clusterAnn %in% paste0("Me", c(3:8))]
+## select only cells in cardiac clusters, minus Me8
+sce.cardiac <- sce[,sce$clusterAnn %in% paste0("Me", c(3:7))]
+## remove Me7 cranial cells
+sce.cardiac <- sce.cardiac[,-which(colnames(sce.cardiac) %in% row.names(calls[calls$class.V2 == "cranialMesoderm",]))]
+
 sce.corr.cardiac <- sce.corr[,colnames(sce.cardiac)]
 # plot(reducedDim(sce.cardiac)$x, reducedDim(sce.cardiac)$y, pch=16, col=sce.cardiac$clusterCol)
 ```
 
-Using all cells in the cardiac mesoderm clusters, the diffusion map embedding arranges cells in a triangular structure, with the two progenitor populations and the cardiomyocytes at the tips; the yellow and orange clusters are intermediates, with the orange stretching out to both progenitor types.
+Using all cells in the cardiac mesoderm clusters, the diffusion map embedding arranges cells in a triangular structure, with the two progenitor populations (`Me5` and `Me7`) and the cardiomyocytes (`Me3`) at the tips; the yellow and orange clusters are intermediates, with the orange stretching out to both progenitor types.
 
 ```{r DM, fig.width=10}
 ## batch corrected data for HVGs
@@ -116,23 +142,23 @@ dpt <- DPT(diffMap)
 
 plots <- list()
 plots[[1]] <- ggplot(dm, aes(DC1, DC2, colour=sce.cardiac$clusterAnn)) + geom_point() + scale_color_manual(values=cols) + labs(colour="pop") + th
-plots[[2]] <- plot(dpt, col_by="branch", root=2, path=c(1,3)) + th
+plots[[2]] <- plot(dpt, col_by="branch", root=1, path=c(2,3), col_path=c("red", "blue")) + th
 ggarrange(plotlist = plots, ncol=2, nrow = 1)
 ```
 
-And using the diffusion pseudotime we can define branches. The turquoise subclusters (Me7 and Me8) form one branch, and so does the green cluster (Me5); the yellow, orange and blue clusters are all merged into the third branch.
+And using the diffusion pseudotime we can define branches. The turquoise Me7 cluster forms one branch, and so does the green Me5 cluster; the yellow, orange and blue clusters are all merged into the third branch.
 
-This suggests that the two progenitor types converge to a common differentiation trajectory to give rise to cardiomyocytes.
+This suggests that the two progenitor types have distinct differentiation trajectories to cardiomyocytes (instead of one progenitor type giving rise to the second).
 
 #### Me5 to cardiomyocyte trajectory
 
 To investigate in more detail the differentiation dynamics of the Me5 progenitors to mature cardiomyocytes, we now compute the diffusion map excluding the turquoise cells, which comprise a distinct branch.
 
-Once again, cells are arranged in a triangular structure, with the progenitors from Me5 and the mature cardiomyocytes at opposite ends; the yellow cluster segregates towards the other tip.
+Once again, cells are arranged in a triangular structure, with the Me5 progenitors and the mature cardiomyocytes at opposite ends; the yellow cluster segregates towards the other tip.
 
 ```{r me5, fig.width=10}
-## exclude Me7 and Me8
-sce.Me5 <- sce[,sce$clusterAnn %in% paste0("Me", c(3:6))]
+## exclude Me7
+sce.Me5 <- sce.cardiac[,-which(colnames(sce.cardiac) %in% colnames(sce.cardiac)[colData(sce.cardiac)$clusterAnn == "Me7"])]
 sce.corr.Me5 <- sce.corr[,colnames(sce.Me5)]
 
 ## diffusion map
@@ -150,7 +176,7 @@ dpt.me5 <- DPT(diffMap.me5)
 
 plots <- list()
 plots[[1]] <- ggplot(dm.me5, aes(DC1, DC2, colour=sce.Me5$clusterAnn)) + geom_point() + scale_color_manual(values=cols) + labs(colour="pop") + th
-plots[[2]] <- plot(dpt.me5, col_by="branch", root=2, path=c(1,3)) + th
+plots[[2]] <- plot(dpt.me5, col_by="branch", root=2, path=c(1,3), col_path=c("red", "blue")) + th
 ggarrange(plotlist = plots, ncol=2, nrow = 1)
 ```
 
@@ -160,54 +186,16 @@ And defining branches based on diffusion pseudotime separates the cardiomyocytes
 table(dpt.me5@branch[,1], sce.Me5[,row.names(dm.me5)]$clusterAnn)
 ```
 
-The cells from branch 1 (orange + green) can be further split with two small subclusters at the tip branching out. In the third diffusion component is evident that the cells in purple differentiate towards red, which in turn link to the turquoise branch of cardiomyocytes. But the cells in the blue branch deviate in a different trajectory, that doesn't progress towards cardiomyocytes.
 
-```{r branch2, fig.width=10}
-plots <- list()
-plots[[1]] <- plot(dpt.me5, col_by="branch", root=2, path=c(1,1), divide=1, dcs=c(1,2)) + th
-plots[[2]] <- plot(dpt.me5, col_by="branch", root=2, path=c(1,3), divide=1, dcs=c(1,3)) + th
-ggarrange(plotlist = plots, ncol = 2, nrow = 1)
-```
-
-The cells that deviate from the trajectory towards cardiomyocytes (blue branch) express higher levels of several keratins and *Hoxb6*.
-
-```{r branch_de}
-## get cells in the three branches of of the orange+green clusters
-branch1.a <- row.names(dpt.me5@branch)[which(dpt.me5@branch[,2] == 5)]
-branch1.b <- row.names(dpt.me5@branch)[which(dpt.me5@branch[,2] == 4)]
-branch1.c <- row.names(dpt.me5@branch)[which(dpt.me5@branch[,2] == 6)] ## away from Me3
-
-## get cells in branches 4:6 and define branches as clusters
-sce.branched <- sce[,c(branch1.a, branch1.b, branch1.c)]
-clst <- rep(c("A","B","C"), c(length(branch1.a), length(branch1.b), length(branch1.c)))
-names(clst) <- c(branch1.a, branch1.b, branch1.c)
-stopifnot(identical(colnames(sce.branched), names(clst)))
-
-## find genes expressed higher in the branch that doesn't go to Me3
-keep <- rowMeans(logcounts(sce.branched)) > 0.1
-de <- findMarkers(sce.branched, clst, block=sce.branched$batch, direction="up", subset.row=keep, pval.type="all")
-
-## plot the top DE genes
-tmp <- logcounts(sce.branched)[row.names(de[[3]])[1:20],]
-tmp <- t(apply(tmp, 1, function(x) (x-mean(x))/sd(x) )) # z-score 
-row.names(tmp) <- rowData(sce.cardiac)[row.names(tmp),]$gene
-
-## clusters (branches) to colours
-c <- c("indianred1", "plum3", "steelblue3")
-names(c) <- c("A","B","C")
-
-heatmap.2(tmp, trace="none", ColSideColors = c[clst], col=colorRampPalette(colors = c("steelblue","white","indianred")), key.xlab="z-score")
-```
-
-#### Me7/8 to cardiomyocyte trajectory
+#### Me7 to cardiomyocyte trajectory
 
 Now do the same to define the alternative trajectory from the turquoise progenitors towards cardiomyocytes.
 
-Again, cells are arranged in a triangular structure, with the Me7-8 progenitors and the cardiomyocytes on opposite ends; and in this case, the cells from the orange cluster are in the other tip. 
+Again, cells are arranged in a triangular structure, with the Me7 progenitors and the cardiomyocytes on opposite ends; and in this case, the cells from the orange cluster are in the other tip. 
 
 ```{r me7, fig.width=10}
 ## exclude Me5
-sce.Me7 <- sce[,sce$clusterAnn %in% paste0("Me", c(3:4,6:8))]
+sce.Me7 <- sce.cardiac[,-which(colnames(sce.cardiac) %in% colnames(sce.cardiac)[colData(sce.cardiac)$clusterAnn == "Me5"])]
 sce.corr.Me7 <- sce.corr[,colnames(sce.Me7)]
 
 ## diffusion map
@@ -226,24 +214,16 @@ dpt.me7 <- DPT(diffMap.me7)
 
 plots <- list()
 plots[[1]] <- ggplot(dm.me7, aes(DC1, DC2, colour=sce.Me7$clusterAnn)) + geom_point() + scale_color_manual(values=cols) + labs(colour="pop") + th
-plots[[2]] <- plot(dpt.me7, col_by="branch", root=1, path=c(2,3)) + th
+plots[[2]] <- plot(dpt.me7, col_by="branch", root=2, path=c(1,3), col_path=c("red", "blue")) + th
 ggarrange(plotlist = plots, ncol=2, nrow = 1)
 ```
 
-Consistently, there is a branching point that separates the most distinct orange cells (Me4); but some orange cells are part of the branch containing the turquoise (Me7-8) and yellow (Me6) progenitors.
+Consistently, there is a branching point that separates the most distinct orange cells (Me4); but some orange cells are part of the branch containing the turquoise (Me7) and yellow (Me6) progenitors.
 
 ```{r branches_me7}
 table(dpt.me7@branch[,1], sce.Me7[,row.names(dm.me7)]$clusterAnn)
 ```
 
-Further splitting branch 2, which contains the turquoise progenitors, also separates a small number of cells at the tip into two branches, suggesting further heterogeneity.
-
-```{r branch2_me7, fig.width=10}
-plots <- list()
-plots[[1]] <- plot(dpt.me7, col_by="branch", root=1, path=c(2,3), divide=2, dcs=c(1,2)) + th
-plots[[2]] <- plot(dpt.me7, col_by="branch", root=1, path=c(2,3), divide=2, dcs=c(1,4)) + th
-ggarrange(plotlist = plots, ncol = 2, nrow = 1)
-```
 
 #### Recap
 
@@ -251,45 +231,41 @@ All together, we can identify two different trajectories leading to mature cardi
 
 - A path starting in the green cells (Me5), that goes through the orange cluster (Me4).
     - The cells from the yellow cluster (Me6) form a different branch from this path.
-    - A small number of cells at the tip of Me5 branch out towards a different trajectory, away from cardiomyocytes.
-- Another path starting in the turquoise cells from Me7 and Me8, that goes through the yellow (Me6) and some cells from the orange (Me4) clusters.
+- Another path starting in the turquoise cells from Me7, that goes through the yellow (Me6) and some cells from the orange (Me4) clusters.
 
 #### Dynamic gene expression
 
-Based on the two trajectories computed above, we can define the pseudotime progression of cells in each, considering only the branch going to mature cardiomyocytes, and ignoring the cells branching off from the yellow and orange clusters in the Me5 and Me7 trajectories respectively.
+Based on the results above, we can define the pseudotime progression of cells in each trajectory, considering only the branch going to mature cardiomyocytes, and ignoring the cells branching off from the yellow and orange clusters in the Me5 and Me7 trajectories, respectively.
 
 Many of the mature cardiomyocytes are shared between the two trajectories, but the intermediate cells linking them to the progenitors are different.
 
-```{r pseudotime, fig.width=12, fig.height=4}
+```{r pseudotime, fig.width=9, fig.height=4}
+## define pseudotime, starting in mature cardiomyocytes and progressing towards both progenitors
+# which(dpt@tips[,1])
+# plot(dpt, col_by="DPT684")
+diffPseudotime <- dpt$DPT684
+names(diffPseudotime) <- colnames(sce.cardiac)
+## since it makes more sense to think of progenitors having lower pseudotime values than mature cells, we flip the values, to reflect this
+diffPseudotime <- -diffPseudotime
+
 ## define pseudotime for the Me5->Me3 trajectory
 ## consider only cells in branches 1 and 2
 cells.me5 <- row.names(dpt.me5@branch)[which(dpt.me5@branch[,1] %in% 1:2)]
-
-# find which tip corresponds to Me5
-# which(dpt.me5@tips[,1])
-# plot(dpt.me5, col_by="DPT1135")
-diffPseudotime_me5 <- dpt.me5$DPT1135
-names(diffPseudotime_me5) <- colnames(sce.corr.Me5)
-diffPseudotime_me5 <- diffPseudotime_me5[cells.me5]
-
+diffPseudotime_me5 <- diffPseudotime[cells.me5]
+names(diffPseudotime_me5) <- cells.me5
 
 ## define pseudotime for the Me7->Me3 trajectory
 ## consider only cells in branches 1 and 2
 cells.me7 <- row.names(dpt.me7@branch)[which(dpt.me7@branch[,1] %in% 1:2)]
-
-# find which tip corresponds to Me7
-# which(dpt.me7@tips[,1])
-# plot(dpt.me7, col_by="DPT1161")
-diffPseudotime_me7 <- dpt.me7$DPT1161
-names(diffPseudotime_me7) <- colnames(sce.corr.Me7)
-diffPseudotime_me7 <- diffPseudotime_me7[cells.me7]
+diffPseudotime_me7 <- diffPseudotime[cells.me7]
+names(diffPseudotime_me7) <- cells.me7
 
 plots <- list()
-plots[[1]] <- ggplot(dm, aes(DC1, DC2, colour=sce.cardiac$clusterAnn)) + geom_point() + scale_color_manual(values=cols) + labs(colour="pop") + ggtitle("Clusters") + theme(plot.title = element_text(face="bold", hjust = 0.5)) + th
-plots[[2]] <- ggplot(dm, aes(DC1, DC2)) + geom_point(data=dm[setdiff(row.names(dm), names(diffPseudotime_me5)),], col="grey", size=1) + geom_point(data=dm[names(diffPseudotime_me5),], aes(col = diffPseudotime_me5)) + scale_colour_gradientn(colours = brewer.pal(n = 9, name = "Greens")[-c(1,9)]) + labs(colour="DPT") + ggtitle("Me5 -> Me3 trajectory") + theme(plot.title = element_text(face="bold", hjust = 0.5)) + th
-plots[[3]] <- ggplot(dm, aes(DC1, DC2)) + geom_point(data=dm[setdiff(row.names(dm), names(diffPseudotime_me7)),], col="grey", size=1) + geom_point(data=dm[names(diffPseudotime_me7),], aes(col = diffPseudotime_me7)) + scale_colour_gradientn(colours = brewer.pal(n = 9, name = "Blues")[-c(1,9)]) + labs(colour="DPT") + ggtitle("Me7 -> Me3 trajectory") + theme(plot.title = element_text(face="bold", hjust = 0.5)) + th
+plots[[1]] <- ggplot(dm, aes(DC1, DC2, colour=sce.cardiac$clusterAnn)) + geom_point() + scale_color_manual(values=cols) + labs(colour="pop") + ggtitle("Clusters") + th + theme(plot.title = element_text(face="bold", hjust = 0.5), axis.text.x = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank(), legend.position = "bottom")
+plots[[2]] <- ggplot(dm, aes(DC1, DC2)) + geom_point(data=dm[setdiff(row.names(dm), names(diffPseudotime_me5)),], col="grey", size=1) + geom_point(data=dm[names(diffPseudotime_me5),], aes(col = diffPseudotime_me5)) + scale_colour_gradientn(colours = brewer.pal(n = 9, name = "Greens")[-c(1,9)]) + labs(colour="DPT") + ggtitle("Me5 -> Me3 trajectory") + th + theme(plot.title = element_text(face="bold", hjust = 0.5), axis.text.x = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank(), legend.position = "bottom")
+plots[[3]] <- ggplot(dm, aes(DC1, DC2)) + geom_point(data=dm[setdiff(row.names(dm), names(diffPseudotime_me7)),], col="grey", size=1) + geom_point(data=dm[names(diffPseudotime_me7),], aes(col = diffPseudotime_me7)) + scale_colour_gradientn(colours = brewer.pal(n = 9, name = "Blues")[-c(1,9)]) + labs(colour="DPT") + ggtitle("Me7 -> Me3 trajectory") + th + theme(plot.title = element_text(face="bold", hjust = 0.5), axis.text.x = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank(), legend.position = "bottom") 
 
-ggarrange(plotlist = plots, ncol = 3, nrow = 1)
+ggarrange(plotlist = plots, ncol = 3, nrow = 1, align="hv")
 ```
 
 Based on these cell orderings, we can identify genes that are expressed dynamically along the trajectories. For this, we follow the method used in *Ibarra-Soria, Wajid et al., Nat Cell Biol, 2018*.
@@ -320,13 +296,13 @@ names(deltaAIC_me5) <- row.names(data)
 deltaAIC_me5 <- deltaAIC_me5[order(deltaAIC_me5)]
 
 # plot(density(deltaAIC_me5))
-# length(deltaAIC_me5[deltaAIC_me5 < -100])  # 2316
-# length(deltaAIC_me5[deltaAIC_me5 < -200])  # 1143
-# length(deltaAIC_me5[deltaAIC_me5 < -300])  # 726
+# length(deltaAIC_me5[deltaAIC_me5 < -100])  # 1968
+# length(deltaAIC_me5[deltaAIC_me5 < -200])  # 994
+# length(deltaAIC_me5[deltaAIC_me5 < -300])  # 630
 
-dynGenes_me5 <- deltaAIC_me5[deltaAIC_me5 < -300]
+dynGenes_me5 <- deltaAIC_me5[deltaAIC_me5 < -200]
 
-# for(gene in names(deltaAIC_me5[701:710])){
+# for(gene in names(deltaAIC_me5[985:995])){
 #   df <- data.frame(diffPseudotime_me5, data[gene,])
 #   fit0 <- locfit(df[,2]~lp(df[,1], nn=smooth, deg=0), data=df)
 #   fit2 <- locfit(df[,2]~lp(df[,1], nn=smooth, deg=2), data=df)
@@ -337,9 +313,9 @@ dynGenes_me5 <- deltaAIC_me5[deltaAIC_me5 < -300]
 # }
 ```
 
-We identify `r length(dynGenes_me5)` genes dynamically expressed along this trajectory. These can be clustered into five different profiles.
+We identify `r length(dynGenes_me5)` genes dynamically expressed along this trajectory. These can be clustered into different profiles.
 
-```{r dynGenes_me6_clusters, fig.width=10, fig.height=6}
+```{r dynGenes_me5_clusters, fig.width=10, fig.height=6}
 curves_me5 <- t(sapply(names(dynGenes_me5), function(x){
   df <- data.frame(diffPseudotime_me5, data[x,])
   fit2 <- locfit(df[,2]~lp(df[,1], nn=smooth, deg=2), data=df)
@@ -353,7 +329,7 @@ test.dissim <- sqrt(0.5*((1-test)))
 test.dist <- as.dist(test.dissim)
 test.clust <- hclust(test.dist, method="average")
 
-clust.genes_me5 <- cutreeDynamic(test.clust,distM=as.matrix(test.dist), minClusterSize=50, method="hybrid", deepSplit = 1, verbose = 0)  # reducing the min cluster size doesn't split the tree further
+clust.genes_me5 <- cutreeDynamic(test.clust,distM=as.matrix(test.dist), minClusterSize=30, method="hybrid", deepSplit = 1, verbose = 0)
 names(clust.genes_me5) <- row.names(curvesStd_me5)
 # table(clust.genes_me5)
 
@@ -372,7 +348,7 @@ for(c in 1:max(clust.genes_me5)){
             ylab(expression("standaradised expr")) +
             ggtitle(paste0("Cluster ", c, " (n=", length(g), ")")) + ylim(0,1.2) + th
 }
-ggarrange(plotlist = plots, ncol = 3, nrow = 2)
+ggarrange(plotlist = plots, ncol = 4, nrow = 2)
 ```
 
 And these genes should be enriched for processes involved in heart development. And this is the case:
@@ -388,43 +364,12 @@ go.test.me5 <- runTest(go.me5, algorithm = "classic", statistic = "Fisher" )
 go.res.me5 <- GenTable(go.me5, Fisher.classic = go.test.me5, topNodes = length(score(go.test.me5)))
 go.res.me5$Fisher.classic.adj <- p.adjust(go.res.me5$Fisher.classic, "fdr")
 go.res.me5[is.na(go.res.me5$Fisher.classic.adj),]$Fisher.classic.adj <- go.res.me5[is.na(go.res.me5$Fisher.classic.adj),]$Fisher.classic
-go.res.me5[c(1,2,6,7,8,20,23,25,27,41,46,58,63,64,93,95),-6]
+go.res.me5[c(1,4,5,13,18,20,24,25,26,36,39,40,45,55,57,64,70,81,82,86,105),-6]
 ```
 
-Considering significantly enriched terms (FDR < 1%) that have at least 20 dynamic genes, we look at the proportion of genes in each of the clusters defined above. Considering the terms where the proportion for one the clusters deviates considerably from the overall behaviour, we observe that terms with a much higher proportion of genes in cluster 1, which are increasing expression along pseudotime, include the development of cardiac and striated muscle, heart and circulatory system development. This makes sense since pseudotime increases as cells mature into cardiomyocytes. In contrast, terms enriched for cluster 2 genes, which are decreasing along pseudotime, include regulation of the cell cycle and proliferation. Terms with larger proportions of genes from cluster 3, which are downregulated in the middle of pseudotime progression, include several signalling pathways. 
+##### Me7 -> Me3 trajectory
 
-```{r go_me5_profiles, fig.width=8}
-sig <- go.res.me5[go.res.me5$Fisher.classic.adj < 0.01 & go.res.me5$Significant >= 20,]
-
-props.me5 <- matrix(nrow = length(unique(clust.genes_me5)), ncol = nrow(sig))
-colnames(props.me5) <- sig$GO.ID
-row.names(props.me5) <- 1:5
-for(go in sig$GO.ID){
-  g <- intersect(genesInTerm(go.me5, go)[[1]], names(dynGenes_me5))
-  tmp <- as.matrix(table(clust.genes_me5[g])/length(g)*100)
-  props.me5[row.names(tmp),go] <- tmp
-}
-props.me5[is.na(props.me5)] <- 0
-
-outliers <- c()
-for(i in 1:5){
-  outliers <- c(outliers, which(props.me5[i,] < median(props.me5[i,])-mad(props.me5[i,]) | props.me5[i,] > median(props.me5[i,])+mad(props.me5[i,])))
-}
-
-tmp <- props.me5[,unique(outliers)]
-tmp <- tmp[,order(tmp[1,])]
-colnames(tmp) <- go.res.me5[match(colnames(tmp), go.res.me5$GO.ID),]$Term
-# colnames(tmp)
-sel <- c(1:4,17,23,26,38,53,63,70,81,85,88,89,105,113,114,115)
-
-par(mar=c(12,2,2,2))
-barplot(tmp[,sel], col=1:5, las=2, cex.names =0.75, xlim=c(0,25))
-legend("topright", legend = 1:5, col = 1:5, pch = 15, title = "cluster", cex=0.85)
-```
-
-##### Me7-8 -> Me3 trajectory
-
-Now we repeat the same for the trajectory from the Me7-8 progenitors.
+Now we repeat the same for the trajectory from the Me7 progenitors.
 
 ```{r dynGenes_me7}
 ## Me7->Me3 trajectory
@@ -448,22 +393,23 @@ names(deltaAIC_me7) <- row.names(data)
 deltaAIC_me7 <- deltaAIC_me7[order(deltaAIC_me7)]
 
 # plot(density(deltaAIC_me7))
-# length(deltaAIC_me7[deltaAIC_me7 < -100])  # 3281
-# length(deltaAIC_me7[deltaAIC_me7 < -200])  # 1747
-# length(deltaAIC_me7[deltaAIC_me7 < -300])  # 1110
+# length(deltaAIC_me7[deltaAIC_me7 < -100])  # 2035
+# length(deltaAIC_me7[deltaAIC_me7 < -200])  # 969
+# length(deltaAIC_me7[deltaAIC_me7 < -300])  # 628
 
-dynGenes_me7 <- deltaAIC_me7[deltaAIC_me7 < -300]
+dynGenes_me7 <- deltaAIC_me7[deltaAIC_me7 < -200]
 
-# gene  <- names(deltaAIC_me7[472])
+# i=860
+# gene  <- names(deltaAIC_me7[i])
 # df <- data.frame(diffPseudotime_me7, data[gene,]); colnames(df) <- c("DPT", "expr")
 # fit0 <- locfit(df[,2]~lp(df[,1], nn=smooth, deg=0), data=df)
 # fit2 <- locfit(df[,2]~lp(df[,1], nn=smooth, deg=2), data=df)
 # ggplot(df, aes(DPT, expr)) + geom_point(colour=sce[,names(diffPseudotime_me7)]$clusterCol, alpha=0.5) + geom_line(aes(diffPseudotime_me7, predict(fit0, diffPseudotime_me7)), lwd=1, col="steelblue2") + geom_line(aes(diffPseudotime_me7, predict(fit2, diffPseudotime_me7)), lwd=1, col="indianred2") + th
 ```
 
-`r length(dynGenes_me7)` genes are dynamically expressed along this pathway, and can be clustered into six profiles. 
+`r length(dynGenes_me7)` genes are dynamically expressed along this pathway, and can be clustered into several profiles. 
 
-```{r dynGenes_me7_clusters, fig.width=10, fig.height=6}
+```{r dynGenes_me7_clusters, fig.width=10, fig.height=10}
 curves_me7 <- t(sapply(names(dynGenes_me7), function(x){
   df <- data.frame(diffPseudotime_me7, data[x,])
   fit2 <- locfit(df[,2]~lp(df[,1], nn=smooth, deg=2), data=df)
@@ -477,7 +423,7 @@ test.dissim <- sqrt(0.5*((1-test)))
 test.dist <- as.dist(test.dissim)
 test.clust <- hclust(test.dist, method="average")
 
-clust.genes_me7 <- cutreeDynamic(test.clust,distM=as.matrix(test.dist), minClusterSize=50, method="hybrid", deepSplit = 1, verbose = 0)  ## reducing min cluster size doesn't split the tree further
+clust.genes_me7 <- cutreeDynamic(test.clust,distM=as.matrix(test.dist), minClusterSize=15, method="hybrid", deepSplit = 1, verbose = 0)  
 names(clust.genes_me7) <- row.names(curvesStd_me7)
 # table(clust.genes_me7)
 
@@ -496,7 +442,7 @@ for(c in 1:max(clust.genes_me7)){
             ylab(expression("standaradised expr")) +
             ggtitle(paste0("Cluster ", c, " (n=", length(g), ")")) + ylim(0,1.2) + th
 }
-ggarrange(plotlist = plots, ncol = 3, nrow = 2)
+ggarrange(plotlist = plots, ncol = 3, nrow = 3)
 ```
 
 This set is also enriched in heart development related terms.
@@ -512,38 +458,9 @@ go.test.me7 <- runTest(go.me7, algorithm = "classic", statistic = "Fisher" )
 go.res.me7 <- GenTable(go.me7, Fisher.classic = go.test.me7, topNodes = length(score(go.test.me7)))
 go.res.me7$Fisher.classic.adj <- p.adjust(go.res.me7$Fisher.classic, "fdr")
 go.res.me7[is.na(go.res.me7$Fisher.classic.adj),]$Fisher.classic.adj <- go.res.me7[is.na(go.res.me7$Fisher.classic.adj),]$Fisher.classic
+go.res.me7[c(1,3,4,6,7,11,13,16,23,26,32,49,99),-6]
 ```
 
-And similarly, terms related to muscle and heart development have large proportion of genes that are upregulated as pseudotime increases, whilst terms related to the cell cycle and proliferation have the opposite behaviour.
-
-```{r go_me7_profiles, fig.width=7}
-sig <- go.res.me7[go.res.me7$Fisher.classic.adj < 0.01 & go.res.me7$Significant >= 20,]
-
-props.me7 <- matrix(nrow = length(unique(clust.genes_me7)), ncol = nrow(sig))
-colnames(props.me7) <- sig$GO.ID
-row.names(props.me7) <- 1:6
-for(go in sig$GO.ID){
-  g <- intersect(genesInTerm(go.me7, go)[[1]], names(dynGenes_me7))
-  tmp <- as.matrix(table(clust.genes_me7[g])/length(g)*100)
-  props.me7[row.names(tmp),go] <- tmp
-}
-props.me7[is.na(props.me7)] <- 0
-
-outliers <- c()
-for(i in 1:6){
-  outliers <- c(outliers, which(props.me7[i,] < median(props.me7[i,])-mad(props.me7[i,]) | props.me7[i,] > median(props.me7[i,])+mad(props.me7[i,])))
-}
-
-tmp <- props.me7[,unique(outliers)]
-tmp <- tmp[,order(tmp[1,])]
-colnames(tmp) <- go.res.me7[match(colnames(tmp), go.res.me7$GO.ID),]$Term
-# colnames(tmp)
-sel <- c(2,4,8,30,48,51,85,87,95,102,110,113,121)
-
-par(mar=c(12,2,2,2))
-barplot(tmp[,sel], col=1:6, las=2, cex.names =0.75, xlim=c(0,17))
-legend("topright", legend = 1:6, col = 1:6, pch = 15, title = "cluster", cex=0.85)
-```
 
 
 #### Relationship with developmental stages
@@ -552,14 +469,14 @@ The diffusion map orders cells based on the similarity of their transcriptomes. 
 
 But is there any relationship between the differentiation dynamics and the developmental stage of the embryos?
 
-The cells from embryos of different stages are arranged quite uniformly along the diffusion space, with the exception of the cells fro stage -1, which preferentially occupy the earliest stages of the turquoise (Me7-8 -> Me6(Me4) -> Me3) trajectory and are pretty much absent from the green (Me5 -> Me4 -> Me3) path.
+The cells from embryos of different stages are arranged quite uniformly along the diffusion space, with the exception of the cells from stage -1, which preferentially occupy the earliest stages of the turquoise (Me7 -> Me6(Me4) -> Me3) trajectory and are pretty much absent from the green (Me5 -> Me4 -> Me3) path.
 
-```{r dm_perStage}
+```{r dm_perStage, fig.width=7.5}
 dm$stage <- sce[,row.names(dm)]$stage
 ggplot(dm, aes(DC1, DC2, colour=stage)) + geom_point(size=1, alpha=0.5) + scale_color_manual(values = brewer.pal(n=8, "YlOrBr")[-c(1:2)]) + facet_wrap(~stage) + th + theme(legend.position = "none", axis.text = element_blank(), axis.ticks = element_blank(), axis.line = element_blank())
 ```
 
-And by uniformly I mean consistent with the density of cells observed in the different areas of the diffusion space (more cells at the tips, especially in the turquoise and blue clusters). Thus, all stages but -1 follow similar distributions of density across the first two diffusion components.
+And by uniformly we mean consistent with the density of cells observed in the different areas of the diffusion space (more cells at the tips, especially in the turquoise and blue clusters). Thus, all stages but -1 follow similar distributions of density across the first two diffusion components.
 
 ```{r density_perStage, fig.width=10}
 plots <- list()
@@ -572,10 +489,10 @@ This suggests that from the formation of the cardiac crescent at stage 0 onward,
 
 #### Visualisation
 
-Finally, for ease of interpretation, we plot the diffusion map so that the progenitor populations are at the top and the cardiomyocytes at the bottom (by plotting DC1 on the y-axis and DC2 on the x-axis), which is a more intuitive interpretation.
+Finally, for ease of interpretation, we plot the diffusion map so that the progenitor populations are at the top and the cardiomyocytes at the bottom (by plotting -1*DC1 on the y-axis and DC2 on the x-axis), which is a more intuitive interpretation.
 
 ```{r vis, fig.height=4}
-ggplot(dm, aes(DC2, DC1, colour=sce.cardiac$clusterAnn)) + geom_point() + scale_color_manual(values=cols) + labs(colour="pop") + th + theme(axis.text = element_blank(), axis.ticks = element_blank())
+ggplot(dm, aes(DC2, -DC1, colour=sce.cardiac$clusterAnn)) + geom_point() + scale_color_manual(values=cols) + labs(colour="pop") + th + theme(axis.text = element_blank(), axis.ticks = element_blank())
 ```
 
 
@@ -596,7 +513,9 @@ write.table(diffPseudotime_me7, file=paste0(dir, "results/diffusionPseudotime_Me
 
 ## dynamic genes.
 write.table(deltaAIC_me5, file = paste0(dir, "results/deltaAIC_Me5.tsv"), quote = FALSE, sep="\t", col.names = FALSE)
+write.table(clust.genes_me5, file=paste0(dir, "results/dynGenes_Me5.tsv"), quote = FALSE, sep="\t", col.names = FALSE)
 write.table(deltaAIC_me7, file = paste0(dir, "results/deltaAIC_Me7.tsv"), quote = FALSE, sep="\t", col.names = FALSE)
+write.table(clust.genes_me7, file=paste0(dir, "results/dynGenes_Me7.tsv"), quote = FALSE, sep="\t", col.names = FALSE)
 
 ## GO enrichment
 write.table(go.res.me5, file=paste0(dir, "results/dynamicGenes_Me5_GO.tsv"), quote = FALSE, sep="\t", row.names = FALSE)
