@@ -10,7 +10,7 @@ library(reshape2)
 library(destiny)
 library(gplots)
 
-dir <- "/Users/ibarra01/OneDrive - CRUK Cambridge Institute/github/mouseHeart_earlyDev_atlas/"
+dir <- "/Users/ibarra01/OneDrive - CRUK Cambridge Institute/github/mouseHeart_2020/"
 out <- "/Users/ibarra01/OneDrive - CRUK Cambridge Institute/WRITING/HEART/Figures/figureElements/"
 
 th <- theme_bw() + theme(axis.ticks.x = element_blank(), axis.text.x = element_text(size=10), axis.title.x = element_text(size=12), axis.text.y = element_text(size=10), axis.title.y = element_text(size=12), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"), panel.border = element_blank(), plot.title = element_text(face="bold", hjust = 0.5))
@@ -211,7 +211,7 @@ dev.off()
 
 
 ## Expression of marker genes ======
-genes <- c("Tbx1", "Fst", "Foxc2")
+genes <- c("Tbx1", "Fst", "Foxc2", "Nkx2-5")
 
 tmp <- logcounts(sce)[row.names(rowData(sce)[rowData(sce)$gene %in% genes,]), ]
 row.names(tmp) <- rowData(sce)[row.names(tmp),]$gene
@@ -227,8 +227,8 @@ for(gene in row.names(tmp)){
                                axis.ticks.y = element_blank())
 }
 
-pdf(paste0(out, "Fig2_markers.pdf"), width = 10, height = 4, useDingbats = FALSE)
-ggarrange(plotlist = plots, ncol = 3, common.legend = TRUE)
+pdf(paste0(out, "Fig2_markers.pdf"), width = 12, height = 4, useDingbats = FALSE)
+ggarrange(plotlist = plots, ncol = 4, common.legend = TRUE)
 dev.off()
 
 

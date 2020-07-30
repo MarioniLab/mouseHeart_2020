@@ -19,7 +19,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(scran)
 library(RColorBrewer)
 
-dir <- "/Users/ibarra01/OneDrive - CRUK Cambridge Institute/github/mouseHeart_earlyDev_atlas/"
+dir <- "/Users/ibarra01/OneDrive - CRUK Cambridge Institute/github/mouseHeart_2020/"
 
 palette(brewer.pal(n=12, "Set3"))
 ```
