@@ -1,8 +1,8 @@
 ###### Figures ######
 library(scran)
 library(ComplexHeatmap)
-library(RColorBrewer)
 library(circlize)
+library(RColorBrewer)
 library(ggplot2)
 library(ggpubr)
 library(locfit)
@@ -18,7 +18,7 @@ th <- theme_bw() + theme(axis.ticks.x = element_blank(), axis.text.x = element_t
 
 ### Figure 1 ###############
 
-## UMAP with clusters ======
+## UMAP with clusters (1C) ======
 umap <- read.table(paste0(dir, "results/umapCoords_corrected.tab"))
 clusters <- read.table(paste0(dir, "results/clusters_average_min40.tsv"), row.names = 1)
 stopifnot(identical(row.names(umap), row.names(clusters)))
@@ -55,7 +55,7 @@ legend("bottomright", legend = ann[order(ann)],
 dev.off()
 
 
-## marker heatmap ======
+## marker heatmap (1D,H)======
 sce <- readRDS(paste0(dir, "data/sce_goodQual.NORM.clusters.Rds"))
 markers <- c("Ttr","Hhex","Foxa2","Cdh1","Sox17","Pax9","Sox2","Dlx5","Wnt6","Tfap2a","Sox1","Gata1","Hba-a1","Tal1","Sox7","Cdh5","Sox17","Pdgfra","Nkx2-5","Mef2c","Gata4","Tnnt2","Ttn","Myh6","Actn2",
              "Nkx2-5","Hand1","Tbx5","Hcn4","Sfrp5",
@@ -93,7 +93,7 @@ Heatmap(tmp[,row.names(order)], col=palette,
 dev.off()
 
 
-## Cell-cycle phase assignment ======
+## Cell-cycle phase assignment (1G)======
 cell_cycle <- read.table(paste0(dir, "results/cellCyclePhase.tsv"), 
                          stringsAsFactors = FALSE, row.names = 1)
 stopifnot(identical(row.names(umap), row.names(cell_cycle)))
@@ -113,7 +113,7 @@ dev.off()
 
 ### Figure 2 ###############
 
-## Reference data UMAP ======
+## Reference data UMAP (2B)======
 sce.ref <- readRDS(paste0(dir, "data/sce_referenceCells_goodQual_clean.NORM.clusters.Rds"))
 umap.ref <- as.data.frame(reducedDim(sce.ref))
 umap.ref$cluster <- sce.ref$cluster
@@ -139,7 +139,7 @@ legend("topleft", legend = names(cols.ref.cluster), pch=16, col=cols.ref.cluster
 dev.off()
 
 
-## Markers of reference regions ======
+## Markers of reference regions (2C)======
 genes <- c("Cyp26c1", "Tcf15", "Hoxa1", "Meox1", "Gata5", "Ttn")
 plots <- list()
 for(gene in genes){
@@ -160,7 +160,7 @@ ggarrange(plotlist = plots, ncol=3, nrow=2, common.legend = TRUE)
 dev.off()
 
 
-## Classification of atlas ======
+## Classification of atlas (2D)======
 labels <- read.table(paste0(dir, "results/classesUnbiasedMe3-8.randForest.tsv"))
 probs <- read.table(paste0(dir, "results/classesUnbiasedMe3-8.randForest.probs.tsv"))
 
@@ -190,7 +190,7 @@ legend("topleft", legend = levels(as.factor(umap$class)), pch=16, col=1:6)
 dev.off()
 
 
-## Proportions of classes per cluster ======
+## Proportions of classes per cluster (2E)======
 tmp <- umap[umap$pass==1,] ## remove low-confidence calls
 freqs <- table(tmp$class, tmp$cluster)
 props <- prop.table(freqs, 2)*100
@@ -210,7 +210,7 @@ ggplot(props, aes(Var2, value, fill = Var1, label = freqs$value)) +
 dev.off()
 
 
-## Expression of marker genes ======
+## Expression of marker genes (2F)======
 genes <- c("Tbx1", "Fst", "Foxc2", "Nkx2-5")
 
 tmp <- logcounts(sce)[row.names(rowData(sce)[rowData(sce)$gene %in% genes,]), ]
@@ -231,16 +231,12 @@ pdf(paste0(out, "Fig2_markers.pdf"), width = 12, height = 4, useDingbats = FALSE
 ggarrange(plotlist = plots, ncol = 4, common.legend = TRUE)
 dev.off()
 
-
-
-### Figure 4 ###############
-
-## Diffusion map ======
+## Diffusion map (2H)======
 diffMap <- readRDS(paste0(dir, "results/diffusionMap_cardiacMesoderm.Rds"))
 diffMap <- as.data.frame(diffMap@eigenvectors[,1:5])
 diffMap$cluster <- clusters[row.names(diffMap),]$ann
 
-pdf(paste0(out, "Fig3_diffMap.pdf"), useDingbats = FALSE)
+pdf(paste0(out, "Fig2_diffMap.pdf"), useDingbats = FALSE)
 ggplot(diffMap, aes(DC2, -DC1, colour=cluster)) + 
   geom_point() + 
   scale_color_manual(values = cols[7:12]) + 
@@ -254,7 +250,7 @@ dev.off()
 dpt <- readRDS(paste0(dir, "results/diffusionPseudotime_cardiacMesoderm.Rds"))
 diffMap$dpt <- dpt$DPT684
 
-pdf(paste0(out, "Fig4_diffPDT.pdf"), useDingbats = FALSE)
+pdf(paste0(out, "Fig2_diffPDT.pdf"), useDingbats = FALSE)
 ggplot(diffMap, aes(DC2, -DC1, colour=dpt)) + 
   geom_point() + 
   scale_color_gradientn(colours = rev(brewer.pal(n=9, "YlOrBr")[-c(1)])) + 
@@ -267,18 +263,10 @@ dev.off()
 
 ### Figure 5 ###############
 
-## Tbx18+ cells ======
-df <- data.frame(cluster=sce$clusterAnn, 
-                 expr=logcounts(sce)[row.names(rowData(sce)[rowData(sce)$gene == "Tbx18",]),])
-df$positive <- ifelse(df$expr>0, 1, 0)
-props <- as.data.frame(prop.table(table(df$cluster, df$positive)[-c(1:6),], 1)*100)
-props <- props[props$Var2==1,]
-props
-
 ## Diffusion pseudotime for Me5->M3
 dpt.me5 <- read.table(paste0(dir, "results/diffusionPseudotime_Me5.tsv"), row.names = 1)
 
-## Nkx2-5 expr ======
+## Nkx2-5 expr (5B)======
 df <- data.frame(x = diffMap$DC2, y = -diffMap$DC1, 
                  log2.exp = logcounts(sce)[row.names(rowData(sce)[rowData(sce)$gene == "Nkx2-5",]),
                                            row.names(diffMap)])
@@ -298,7 +286,7 @@ ggplot(df[!is.na(df$me5),], aes(me5, log2.exp)) +
 dev.off()
 
 
-## Mab21l2 expr ======
+## Mab21l2 expr (5E)======
 df <- data.frame(x = diffMap$DC2, y = -diffMap$DC1, 
                  log2.exp = logcounts(sce)[row.names(rowData(sce)[rowData(sce)$gene == "Mab21l2",]),
                                            row.names(diffMap)])
@@ -318,10 +306,19 @@ ggplot(df[!is.na(df$me5),], aes(me5, log2.exp)) +
 dev.off()
 
 
+## Tbx18+ cells (5F)======
+df <- data.frame(cluster=sce$clusterAnn, 
+                 expr=logcounts(sce)[row.names(rowData(sce)[rowData(sce)$gene == "Tbx18",]),])
+df$positive <- ifelse(df$expr>0, 1, 0)
+props <- as.data.frame(prop.table(table(df$cluster, df$positive)[-c(1:6),], 1)*100)
+props <- props[props$Var2==1,]
+props
+
+
 
 ### Figure S1 ###############
 
-## UMAP per stage ======
+## UMAP per stage (S1A)======
 umap$stage <- colData(sce)$stage
 umap$cluster <- sce$clusterAnn
 umap$col <- sce$clusterCol
@@ -338,7 +335,7 @@ for(stage in stages){
 dev.off()
 
 
-## Proportion of cells per cluster across stages ======
+## Proportion of cells per cluster across stages (S1B)======
 # use the different batches as replicates, to get estimates with mean +- sd
 props <- list()
 for(i in unique(sce$batch)){
@@ -388,7 +385,7 @@ ggplot(df, aes(x=stage, y=mean, group=pop, color=pop)) +
 dev.off()
 
 
-## Proportion of cells in G1 per stage ======
+## Proportion of cells in G1 per stage (S1C)======
 cell_cycle <- cbind(cell_cycle, umap[match(row.names(cell_cycle), row.names(umap)),])
 
 props <- as.matrix(table(cell_cycle$V2, cell_cycle$cluster))
@@ -406,7 +403,7 @@ dev.off()
 
 ### Figure S2 ###############
 
-## QC metrics ======
+## QC metrics (S2A)======
 qc <- read.table(paste0(dir, "data/QCstats_allCells.tsv"))
 meta <- read.table(paste0(dir, "data/SupplementaryTable1.tab"), header = TRUE, row.names = 1)
 stopifnot(identical(row.names(qc), row.names(meta)))
@@ -454,7 +451,7 @@ ggarrange(plotlist = plots, ncol = 4, nrow = 1)
 dev.off()
 
 
-## Batch correction ======
+## Batch correction (S2B)======
 umap_bb <- read.table(paste0(dir, "results/umapCoords.tab"))
 umap_bb$batch <- paste0("batch_", meta[row.names(umap_bb),]$batch)
 
@@ -490,7 +487,7 @@ dev.off()
 
 ### Figure S3 ###############
 
-## Marker expression ======
+## Marker expression (S3A-D)======
 stopifnot(identical(row.names(clusters), row.names(umap)))
 plotGeneOnUMAP <- function(gene="Nkx2-5") {
   id <- row.names(rowData(sce)[rowData(sce)$gene==gene,])
@@ -564,7 +561,7 @@ dev.off()
 
 ### Figure S5 ###############
 
-## UMAP with classes used for RF ======
+## UMAP with classes used for RF (S5A)======
 umap.ref$label <- as.character(umap.ref$ann)
 umap.ref[umap.ref$label == "dorsalMesoderm" & umap.ref[,2]>0,]$label <- "dorsalMesoderm_1"
 umap.ref[umap.ref$label == "dorsalMesoderm" & umap.ref[,2]<0,]$label <- "dorsalMesoderm_2"
@@ -583,7 +580,7 @@ box(bty="l")
 legend("topleft", legend = levels(umap.ref$label), pch=16, col=1:7)
 dev.off()
 
-## Important genes =====
+## Important genes (S5B)=====
 forest <- readRDS(paste0(dir, "results/randomForest_referenceCells.Rds"))
 imp.genes <- row.names(forest$importance[order(forest$importance[,7], decreasing = TRUE),][1:50,])
 
@@ -606,7 +603,7 @@ heatmap.2(dat, trace="none", col=rev(brewer.pal(n=10, "RdYlBu")),
 dev.off()
 
 
-## Prediction probs =====
+## Prediction probs (S5C)=====
 calls <- data.frame(class=labels, 
                     max.prob=apply(probs, 2, max), 
                     closest=apply(probs, 2, function(x) max(x[x!=max(x)]) ))
@@ -622,50 +619,43 @@ ggplot(calls, aes(x=class.V2, y=max.prob, colour=pass)) +
 dev.off()
 
 
+### Figure S6 ###############
+
+pdf(paste0(out, "FigS6_Tbx1.pdf"), width = 7, height = 4, useDingbats = FALSE)
+plotGeneOnUMAP(gene = "Tbx1")
+dev.off()
+
+pdf(paste0(out, "FigS6_Asb2.pdf"), width = 7, height = 4, useDingbats = FALSE)
+plotGeneOnUMAP(gene = "Asb2")
+dev.off()
+
+
 ### Figure S8 ###############
 
-pdf(paste0(out, "FigS8_Nkx2-5.pdf"), width = 7, height = 4, useDingbats = FALSE)
-plotGeneOnUMAP(gene = "Nkx2-5")
+pdf(paste0(out, "FigS8_Mab21l2.pdf"), width = 7, height = 4, useDingbats = FALSE)
+plotGeneOnUMAP(gene = "Mab21l2")
 dev.off()
 
-pdf(paste0(out, "FigS8_Smarcd3.pdf"), width = 7, height = 4, useDingbats = FALSE)
-plotGeneOnUMAP(gene = "Smarcd3")
+pdf(paste0(out, "FigS8_Fst.pdf"), width = 7, height = 4, useDingbats = FALSE)
+plotGeneOnUMAP(gene = "Fst")
 dev.off()
 
-pdf(paste0(out, "FigS8_Hand1.pdf"), width = 7, height = 4, useDingbats = FALSE)
-plotGeneOnUMAP(gene = "Hand1")
-dev.off()
-
-pdf(paste0(out, "FigS8_Snai1.pdf"), width = 7, height = 4, useDingbats = FALSE)
-plotGeneOnUMAP(gene = "Snai1")
-dev.off()
-
-pdf(paste0(out, "FigS8_Tbx5.pdf"), width = 7, height = 4, useDingbats = FALSE)
-plotGeneOnUMAP(gene = "Tbx5")
-dev.off()
-
-pdf(paste0(out, "FigS8_Ttn.pdf"), width = 7, height = 4, useDingbats = FALSE)
-plotGeneOnUMAP(gene = "Ttn")
+pdf(paste0(out, "FigS8_Foxc2.pdf"), width = 7, height = 4, useDingbats = FALSE)
+plotGeneOnUMAP(gene = "Foxc2")
 dev.off()
 
 
 ### Figure S9 ###############
 
-pdf(paste0(out, "FigS9_Mab21l2.pdf"), width = 7, height = 4, useDingbats = FALSE)
-plotGeneOnUMAP(gene = "Mab21l2")
-dev.off()
-
-
-### Figure S10 ###############
-
-pdf(paste0(out, "FigS10_diffMap_branches.pdf"), useDingbats = FALSE)
+## Branching points (S9A)======
+pdf(paste0(out, "FigS9_diffMap_branches.pdf"), useDingbats = FALSE)
 plot(dpt, root=1, paths_to=c(2,3), col_by="branch", dcs=c(2,-1)) + 
   th + theme(axis.ticks.y = element_blank(),
              axis.text.x = element_blank(),
              axis.text.y = element_blank())
 dev.off()
 
-## Me5->Me3 trajectory ======
+## Me5->Me3 trajectory (S9B)======
 diffMap.me5 <- readRDS(paste0(dir, "results/diffusionMap_me5.Rds"))
 diffMap.me5 <- as.data.frame(diffMap.me5@eigenvectors[,1:2])
 diffMap.me5$ann <- sce[,row.names(diffMap.me5)]$clusterAnn
@@ -698,12 +688,12 @@ plots[[3]] <- plot(dpt.me5, col_by="branch", root=2, path=c(1,3)) +
              axis.text.y = element_blank(),
              legend.position = "bottom")
 
-pdf(paste0(out, "FigS10_DMme5.pdf"), width = 10, height = 4, useDingbats = FALSE)
+pdf(paste0(out, "FigS9_DMme5.pdf"), width = 10, height = 4, useDingbats = FALSE)
 ggarrange(plotlist = plots, ncol=3, nrow = 1, align = "h")
 dev.off()
 
 
-## Me7->Me3 trajectory ======
+## Me7->Me3 trajectory (S9C)======
 diffMap.me7 <- readRDS(paste0(dir, "results/diffusionMap_me7.Rds"))
 diffMap.me7 <- as.data.frame(diffMap.me7@eigenvectors[,1:2])
 diffMap.me7$ann <- sce[,row.names(diffMap.me7)]$clusterAnn
@@ -736,15 +726,15 @@ plots[[3]] <- plot(dpt.me7, col_by="branch", root=2, path=c(1,3)) +
              axis.text.y = element_blank(),
              legend.position = "bottom")
 
-pdf(paste0(out, "FigS10_DMme7.pdf"), width = 10, height = 4, useDingbats = FALSE)
+pdf(paste0(out, "FigS9_DMme7.pdf"), width = 10, height = 4, useDingbats = FALSE)
 ggarrange(plotlist = plots, ncol=3, nrow = 1, align="h")
 dev.off()
 
 
-## relationship with stage ======
+## relationship with stage (S9D-E)======
 diffMap$stage <- sce[,row.names(diffMap)]$stage
 
-pdf(paste0(out, "FigS10_perStage.pdf"), width = 7, height = 4.5, useDingbats = FALSE)
+pdf(paste0(out, "FigS9_perStage.pdf"), width = 7, height = 4.5, useDingbats = FALSE)
 ggplot(diffMap, aes(DC2, -DC1, colour=stage)) + 
   geom_point(size=1, alpha=0.5) + 
   scale_color_manual(values = brewer.pal(n=8, "Blues")[-c(1:2)]) + 
@@ -788,28 +778,13 @@ plots[[4]] <- ggplot(diffMap, aes(DC2, fill="black", alpha=0.5)) +
         axis.text.y = element_blank(),
         axis.ticks.y = element_blank())
 
-pdf(paste0(out, "FigS10_perStage_density.pdf"), width = 7, height = 7, useDingbats = FALSE)
+pdf(paste0(out, "FigS9_perStage_density.pdf"), width = 7, height = 7, useDingbats = FALSE)
 ggarrange(plotlist = plots, ncol = 2, nrow = 2)
 dev.off()
 
 
-### Figure S11 ###############
+### Figure S10 ###############
 
-pdf(paste0(out, "FigS10_Tbx1.pdf"), width = 7, height = 4, useDingbats = FALSE)
-plotGeneOnUMAP(gene = "Tbx1")
-dev.off()
-
-pdf(paste0(out, "FigS10_Asb2.pdf"), width = 7, height = 4, useDingbats = FALSE)
-plotGeneOnUMAP(gene = "Asb2")
-dev.off()
-
-pdf(paste0(out, "FigS10_Nkx2-5.pdf"), width = 7, height = 4, useDingbats = FALSE)
-plotGeneOnUMAP(gene = "Nkx2-5")
-dev.off()
-
-
-##########
-### Figure for shiny app
 ## Combination of marker genes used to identify clusters in staining experiments
 sce.cardiac <- sce[,sce$clusterAnn %in% paste0("Me",3:8)]
 sce.cardiac <- sce.cardiac[,-which(reducedDim(sce.cardiac)[,2]>5)] # remove outlier cell
@@ -821,14 +796,14 @@ df <- reducedDim(sce.cardiac)
 df <- cbind(df, t(logcounts(sce.cardiac)[m,]))
 colnames(df)[4:10] <- rowData(sce)[colnames(df)[4:10],]$gene
 
-cols <- hcl.colors(n=6, palette = "Viridis")
-cols <- c("#6D187C","grey",cols[-1])
+cols.shiny <- hcl.colors(n=6, palette = "Viridis")
+cols.shiny <- c("#6D187C","grey",cols.shiny[-1])
 plots <- list()
 for(i in 4:10){
   plots[[i-3]] <- ggplot(df, aes(x, y)) + 
     # geom_point(colour="lightgrey", alpha = 0.5, size = 1) +
     stat_density_2d(data=df[df[,i]>1,], aes(x, y, alpha=..level..),
-                    fill = cols[i-3], 
+                    fill = cols.shiny[i-3], 
                     size = 2, bins = 10, geom = 'polygon') +
     xlim(c(-10, -2.5)) + ylim(c(-7, 4)) +
     ggtitle(colnames(df)[i]) + xlab("") + ylab("") +
@@ -849,6 +824,48 @@ plots[[8]] <- ggplot(df, aes(x, y)) +
              legend.position = "none",
              panel.background = element_rect(fill = "transparent"),
              plot.background = element_rect(fill = "transparent", color = NA))
-pdf(paste0(out, "clusterStainingMarkers.pdf"), width = 12, height = 6, useDingbats = FALSE)
+
+pdf(paste0(out, "FigS10_clusterStainingMarkers.pdf"), width = 12, height = 6, useDingbats = FALSE)
 ggarrange(plotlist = plots, ncol=4, nrow=2)
+dev.off()
+
+
+### Figure S11 ###############
+
+pdf(paste0(out, "FigS11_Smarcd3.pdf"), width = 7, height = 4, useDingbats = FALSE)
+plotGeneOnUMAP(gene = "Smarcd3")
+dev.off()
+
+pdf(paste0(out, "FigS11_Hand1.pdf"), width = 7, height = 4, useDingbats = FALSE)
+plotGeneOnUMAP(gene = "Hand1")
+dev.off()
+
+pdf(paste0(out, "FigS11_Snai1.pdf"), width = 7, height = 4, useDingbats = FALSE)
+plotGeneOnUMAP(gene = "Snai1")
+dev.off()
+
+pdf(paste0(out, "FigS11_Tbx5.pdf"), width = 7, height = 4, useDingbats = FALSE)
+plotGeneOnUMAP(gene = "Tbx5")
+dev.off()
+
+pdf(paste0(out, "FigS11_Ttn.pdf"), width = 7, height = 4, useDingbats = FALSE)
+plotGeneOnUMAP(gene = "Ttn")
+dev.off()
+
+
+### Figure S14 ###############
+
+pdf(paste0(out, "FigS14_Fsd2.pdf"), width = 7, height = 4, useDingbats = FALSE)
+plotGeneOnUMAP(gene = "Fsd2")
+dev.off()
+
+pdf(paste0(out, "FigS14_Vsnl1.pdf"), width = 7, height = 4, useDingbats = FALSE)
+plotGeneOnUMAP(gene = "Vsnl1")
+dev.off()
+
+
+### Figure S19 ###############
+
+pdf(paste0(out, "FigS19_Tbx18.pdf"), width = 7, height = 4, useDingbats = FALSE)
+plotGeneOnUMAP(gene = "Tbx18")
 dev.off()
