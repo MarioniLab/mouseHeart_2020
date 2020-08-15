@@ -24,7 +24,7 @@ Data are from SMART-seq2 protocol, sequenced in an Illumina HiSeq 2500, to gener
 
 Sequencing data were aligned to the mouse reference genome (`mm10` supplemented with ERCC spike-in sequences) with `GSNAP` and the fragments aligned to each gene annotated in `Ensembl v87` were quantified with `HTSeq`. The counts for each cell were compiled into a single count matrix that is provided as `Supplementary Data 1` with the paper. Download from [here](add link). This file is read into R and saved as an `Rds` file for quicker access (`heartData_unbiased.RAW.Rds`). 
 
-Sample metadata is provided as `Supplementary Table 1` with the paper. Download from [here](add_link).
+Sample metadata is provided as `Supplementary Table 5` with the paper. Download from [here](add_link).
 
 Gene information is available in the `data` folder.
 
@@ -38,7 +38,7 @@ First, we load the count data, sample metadata and gene information.
 data <- readRDS(paste0(dir, "data/heartData_unbiased.RAW.Rds"))
 
 ## sample metadata
-meta <- read.table(paste0(dir, "data/SupplementaryTable1.tab"), header = TRUE, sep="\t", stringsAsFactors = FALSE)
+meta <- read.table(paste0(dir, "data/SupplementaryTable5.tab"), header = TRUE, sep="\t", stringsAsFactors = FALSE)
 stopifnot(identical(colnames(data), meta$cell))
 meta$batch <- as.factor(paste0("batch_", meta$batch)) ## make 'batch' categorical
 

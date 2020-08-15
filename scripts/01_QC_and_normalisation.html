@@ -282,7 +282,7 @@ div.tocify {
 <p>We have generated single-cell RNA-seq data from <em>unbiased</em> sampling of the developing heart in mouse embryos. the sampling covers the earliest stages of heart development, when the cardiac crescent becomes evident, up to the linear heart tube (LHT) stage. Embryos were staged depending on their cardiac crescent morphology and classified as stages 0 to 3, or LHT, as defined in Tyser et al., eLife, 2016. An additional sample was collected just before the left and right portions of the prospective cardiac crescent fuse (stage -1). All data were collected across seven different batches.</p>
 <p>Data are from SMART-seq2 protocol, sequenced in an Illumina HiSeq 2500, to generate 125bp paired-end fragments. The first batch is 40 cells, used as a pilot to ensure the protocols for library prep were working properly. Raw data from the pilot can be accessed at ArrayExpress <a href="https://www.ebi.ac.uk/arrayexpress/experiments/E-MTAB-7403/">E-MTAB-7403</a> and from batches 2 to 7 at the European Nucleotide Archive under project <a href="https://www.ebi.ac.uk/ena/data/view/PRJEB14363">PRJEB14363</a>.</p>
 <p>Sequencing data were aligned to the mouse reference genome (<code>mm10</code> supplemented with ERCC spike-in sequences) with <code>GSNAP</code> and the fragments aligned to each gene annotated in <code>Ensembl v87</code> were quantified with <code>HTSeq</code>. The counts for each cell were compiled into a single count matrix that is provided as <code>Supplementary Data 1</code> with the paper. Download from <a href="add%20link">here</a>. This file is read into R and saved as an <code>Rds</code> file for quicker access (<code>heartData_unbiased.RAW.Rds</code>).</p>
-<p>Sample metadata is provided as <code>Supplementary Table 1</code> with the paper. Download from <a href="add_link">here</a>.</p>
+<p>Sample metadata is provided as <code>Supplementary Table 5</code> with the paper. Download from <a href="add_link">here</a>.</p>
 <p>Gene information is available in the <code>data</code> folder.</p>
 <hr />
 <p>First, we load the count data, sample metadata and gene information.</p>
@@ -290,7 +290,7 @@ div.tocify {
 data &lt;- readRDS(paste0(dir, &quot;data/heartData_unbiased.RAW.Rds&quot;))
 
 ## sample metadata
-meta &lt;- read.table(paste0(dir, &quot;data/SupplementaryTable1.tab&quot;), header = TRUE, sep=&quot;\t&quot;, stringsAsFactors = FALSE)
+meta &lt;- read.table(paste0(dir, &quot;data/SupplementaryTable5.tab&quot;), header = TRUE, sep=&quot;\t&quot;, stringsAsFactors = FALSE)
 stopifnot(identical(colnames(data), meta$cell))
 meta$batch &lt;- as.factor(paste0(&quot;batch_&quot;, meta$batch)) ## make 'batch' categorical
 

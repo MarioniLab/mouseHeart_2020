@@ -284,7 +284,7 @@ div.tocify {
 data &lt;- readRDS(paste0(dir, &quot;data/mesodermData_reference.RAW.Rds&quot;))
 
 ## sample metadata
-meta &lt;- read.table(paste0(dir, &quot;data/SupplementaryTable3.tab&quot;), header = TRUE, sep=&quot;\t&quot;, stringsAsFactors = FALSE)
+meta &lt;- read.table(paste0(dir, &quot;data/SupplementaryTable7.tab&quot;), header = TRUE, sep=&quot;\t&quot;, stringsAsFactors = FALSE)
 meta &lt;- meta[match(colnames(data), meta$cellID),]
 stopifnot(identical(colnames(data), meta$cell))
 meta$batch &lt;- as.factor(paste0(&quot;batch_&quot;, meta$batch)) ## make 'batch' categorical
