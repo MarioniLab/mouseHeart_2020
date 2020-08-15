@@ -54,7 +54,7 @@ shinyUI(fluidPage(
         column(4,
           # div(style = "margin-top:-80px"),
           uiOutput("video_nkx"),
-          HTML("3D volume rendering movie of a <b>stage 1</b> cardiac crescent using whole mount 
+          HTML("<b>Movie S1:</b> 3D volume rendering movie of a <b>stage 1</b> cardiac crescent using whole mount 
                immunofluorescence to label the cardiac precursor marker <b>NKX2-5 (red)</b>. 
                DAPI labelling of nuclei shown in grey. Related to Figure 1B.")
         )
@@ -65,7 +65,7 @@ shinyUI(fluidPage(
           HTML( "<p>Raw data is available from the European Nucleotide Archive database under study 
                 <a href='https://www.ebi.ac.uk/ena/data/view/PRJEB14363'>PRJEB14363</a>, and ArrayExpress under accession 
                 <a href='https://www.ebi.ac.uk/arrayexpress/experiments/E-MTAB-7403/'>E-MTAB-7403</a>. Identifiers 
-                for each sample are provided in Supplementary Table 1, along with relevant metadata.</p>" ),
+                for each sample are provided in Supplementary Tables 5 and 7, along with relevant metadata.</p>" ),
           HTML( "<p>Processed data can be downloaded from 
                 <a href='https://content.cruk.cam.ac.uk/jmlab/mouseEmbryonicHeartAtlas/'>here</a>.</p>" ),
           HTML( "<p>Code associated with this study is available in 
@@ -82,11 +82,11 @@ shinyUI(fluidPage(
           div(style = "height:20px"),
           h4("Cardiac crescent in relation to the endoderm"),
           uiOutput("video_sox17"),
-          HTML("3D volume rendering movie of a <b>stage 1</b> cardiac crescent using whole mount 
+          HTML("<b>Movie S2:</b> 3D volume rendering movie of a <b>stage 1</b> cardiac crescent using whole mount 
            immunofluorescence to label the contractile protein <b> Sarcomeric Alpha-Actinin (green)</b> 
            and the transcription factor <b>SOX17 (magenta)</b>. Sarcomeric Alpha-Actinin marks 
            cardiomyocytes and highlights the cardiac crescent. SOX17 marks the endoderm overlying 
-           the heart, and endothelial cells. DAPI labeling of nuclei is shown in grey.
+           the heart, and endothelial cells. DAPI labelling of nuclei is shown in grey.
            Related to Figure 1D.")
         ),
         column(2,
@@ -103,17 +103,20 @@ shinyUI(fluidPage(
           h4("Additional markers"),
           div(style = "margin-top:-10px"),
           selectInput("videoChoice", label = "",
-                      choices = list("Fst-Mab21l2-Nkx2.5 - Stage 0" = "fst0", 
-                                     "Fst-Mab21l2-Nkx2.5 - Stage 2" = "fst2", 
-                                     "Mab21l2-Tbx18-Nkx2.5 - Stage 2" = "mab", 
-                                     "Tbx1-Asb2-Nkx2.5 - Stage -1" = "tbx-1",
-                                     "Tbx1-Asb2-Nkx2.5 - Stage 2" = "tbx2",
-                                     "Tbx1-Asb2-Nkx2.5 - Stage LHT" = "tbxlht",
-                                     "Vsnl1-Mab21l2-Nkx2.5 - Stage -1" = "vsn-1",
-                                     "Vsnl1-Mab21l2-Fsd2 - Stage 1" = "vsn1",
-                                     "Vsnl1-Mab21l2-Fsd2 - Stage 2" = "vsn2",
-                                     "Vsnl1-Mab21l2-Fsd2 - Stage LHT" = "vsnlht"),
-                      selected = 1),
+                      choices = list("Movie S3: Tbx1-Asb2-Nkx2.5 - Stage 2" = "tbx2",
+                                     "Movie S4: Tbx1-Asb2-Nkx2.5 - Stage -1" = "tbx-1",
+                                     "Movie S5: Tbx1-Asb2-Nkx2.5 - Stage LHT" = "tbxlht",
+                                     "Movie S6: Mab21l2-Tbx18-Nkx2.5 - Stage 2" = "mab", 
+                                     "Movie S7: Fst-Mab21l2-Nkx2.5 - Stage 0" = "fst0", 
+                                     "Movie S8: Vsnl1-Mab21l2-Fsd2 - Stage 1" = "vsn1",
+                                     "Movie S9: Vsnl1-Mab21l2-Fsd2 - Stage 2" = "vsn2",
+                                     "Movie S10: Vsnl1-Mab21l2-Fsd2 - Stage LHT" = "vsnlht",
+                                     "Movie S11: Vsnl1-Mab21l2-Nkx2.5 - Stage -1" = "vsn-1",
+                                     "Movie S12:  Me5 cell 1 in Nkx2-5-Cre; R26-nTnG embryo" = "timeLapse1",
+                                     "Movie S13:  Me5 cell 2 in Nkx2-5-Cre; R26-nTnG embryo" = "timeLapse2",
+                                     "Movie S14: Fst-Mab21l2-Nkx2.5 - Stage 2" = "fst2"),
+                      selected = 1,
+                      width = "400px"),
           uiOutput("videos"),
           htmlOutput("caption")
         ),
@@ -124,6 +127,33 @@ shinyUI(fluidPage(
         column(5,
           div(style = "height:50px"),
           img(src = "clusterMarkers.png", height = 420, width = 520),
+          br(),
+          br(),
+          br(),
+          br()
+        )
+      ),
+      fluidRow(
+        hr()
+      ),
+      fluidRow(
+        column(10, offset = 1,
+          h4("Additional data"),
+          HTML("TIFF files containing individual Z-sections for 3D whole-mount immunostaining data 
+               are available to download, for the figure panels indicated. Channel names and 
+               magnification are specified in the file name. Actin was stained using Phalloidin. 
+               Differential interference contrast (DIC) was also included to provide a brightfield 
+               image of the sample. For more details please refer to the corresponding figure legend 
+               and methods."),
+          div(style = "height:20px"),
+          downloadButton("figure6B", label = "Figure 6B"),
+          downloadButton("figure6C", label = "Figure 6C"),
+          downloadButton("figure6D", label = "Figure 6D"),
+          downloadButton("figure6E", label = "Figure 6E"),
+          downloadButton("figure6F", label = "Figure 6F"),
+          downloadButton("figureS20E", label = "Supp Figure 20E"),
+          downloadButton("figureS20F", label = "Supp Figure 20F"),
+          br(),
           br(),
           br(),
           br()
