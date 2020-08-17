@@ -146,9 +146,11 @@ shinyUI(fluidPage(
                image of the sample. For more details please refer to the corresponding figure legend 
                and methods."),
           div(style = "height:20px"),
+          downloadButton("figure3E", label = "Figure 3E"),
+          downloadButton("figure4E", label = "Figure 4E"),
           downloadButton("figure6B", label = "Figure 6B"),
           downloadButton("figure6C", label = "Figure 6C"),
-          downloadButton("figure6D", label = "Figure 6D"),
+          # downloadButton("figure6D", label = "Figure 6D"),
           downloadButton("figure6E", label = "Figure 6E"),
           downloadButton("figure6F", label = "Figure 6F"),
           downloadButton("figureS20E", label = "Supp Figure 20E"),

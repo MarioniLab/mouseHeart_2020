@@ -136,6 +136,20 @@ shinyServer(
     })
     
     ## TIFF downloads
+    output$figure3E <- downloadHandler(
+      filename = "Figure3E_40x_Nkx25_Mab21l2_Tbx18_DAPI_DIC.tif.zip",
+      content <- function(file) {
+        file.copy("www/Figure3E_40x_Nkx25_Mab21l2_Tbx18_DAPI_DIC.tif.zip", file)
+      },
+      contentType = "application/zip"
+    )
+    output$figure4E <- downloadHandler(
+      filename = "Figure4E_Nkx25_Mab21l2_Tbx1_DAPI_DIC.tif.zip",
+      content <- function(file) {
+        file.copy("www/Figure4E_Nkx25_Mab21l2_Tbx1_DAPI_DIC.tif.zip", file)
+      },
+      contentType = "application/zip"
+    )
     output$figure6B <- downloadHandler(
       filename = "Figure6B_E80_40x_cTnT_ER_YFP_DAPI_DIC.tif.zip",
       content <- function(file) {
@@ -150,13 +164,13 @@ shinyServer(
       },
       contentType = "application/zip"
     )
-    output$figure6D <- downloadHandler(
-      filename = "Figure6D_E95_5x_WT1_cTnT_YFP_DAPI_DIC.tif.zip",
-      content <- function(file) {
-        file.copy("www/Figure6D_E95_5x_WT1_cTnT_YFP_DAPI_DIC.tif.zip", file)
-      },
-      contentType = "application/zip"
-    )
+    # output$figure6D <- downloadHandler(
+    #   filename = "Figure6D_E95_5x_WT1_cTnT_YFP_DAPI_DIC.tif.zip",
+    #   content <- function(file) {
+    #     file.copy("www/Figure6D_E95_5x_WT1_cTnT_YFP_DAPI_DIC.tif.zip", file)
+    #   },
+    #   contentType = "application/zip"
+    # )
     output$figure6E <- downloadHandler(
       filename = "Figure6E_E105_10x_SarcoActinin_YFP_Actin_DAPI_DIC.tif.zip",
       content <- function(file) {
