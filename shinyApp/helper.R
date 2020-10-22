@@ -549,7 +549,7 @@ expr_boxplot_ref_fromTable <- function(sel=1, col_by = "mesodermType") {
 ###############
 #### data #####
 ###############
-# dir <- "/Users/ibarra01/OneDrive - CRUK Cambridge Institute/github/mouseHeart_earlyDev_atlas/"
+# dir <- "/Users/ibarra01/OneDrive - CRUK Cambridge Institute/github/mouseHeart_2020/"
 
 ## normalised counts
 # countsNorm <- readRDS(paste0(dir, "data/heartData_unbiased.goodQual.NORM.Rds"))
@@ -679,7 +679,7 @@ expr_boxplot_ref_fromTable <- function(sel=1, col_by = "mesodermType") {
 # umap_ref$cluster <- sce$cluster
 
 # relabel dissections
-# labs <- c("DM", "PSM", "CrM", "VM")
+# labs <- c("DM", "PM", "CrM", "VM")
 # names(labs) <- unique(umap_ref$dissection)
 # umap_ref$dissection <- labs[umap_ref$dissection]
 
