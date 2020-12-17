@@ -101,6 +101,7 @@ shinyUI(fluidPage(
       fluidRow(
         column(4, offset=1,
           h4("Additional markers"),
+          HTML("Use the pull down menu to select different combinations of marker genes"),
           div(style = "margin-top:-10px"),
           selectInput("videoChoice", label = "",
                       choices = list("Movie S3: Tbx1-Asb2-Nkx2.5 - Stage 2" = "tbx2",
@@ -121,7 +122,7 @@ shinyUI(fluidPage(
           htmlOutput("caption")
         ),
         column(1,
-          div(style = "height:110px"),
+          div(style = "height:150px"),
           htmlOutput("annotation")
         ),
         column(5,
