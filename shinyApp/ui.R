@@ -17,9 +17,9 @@ shinyUI(fluidPage(
         column(12,
           br(),
           HTML( "<p style='font-size:15px'><b>Website accompanying the paper </b>
-                <i>Anatomical and Transcriptional identification of cardiac 
-                progenitors during heart formation reveals a novel heart field,</i>
-                by Tyser et al., xxx, 2020.</p><br>" ),
+                <i>Characterization of a common progenitor pool of the epicardium and myocardium,</i>
+                by Tyser, Ibarra-Soria et al., Science, 2021. 
+                <a href='https://doi.org/10.1126/science.abb2986'>DOI: 10.1126/science.abb2986</a></p><br>" ),
           hr()
         )
       ),
