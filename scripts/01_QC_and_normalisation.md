@@ -18,13 +18,13 @@ output:
 
 ### QC and normalisation
 
-We have generated single-cell RNA-seq data from *unbiased* sampling of the developing heart in mouse embryos. the sampling covers the earliest stages of heart development, when the cardiac crescent becomes evident, up to the linear heart tube (LHT) stage. Embryos were staged depending on their cardiac crescent morphology and classified as stages 0 to 3, or LHT, as defined in Tyser et al., eLife, 2016. An additional sample was collected just before the left and right portions of the prospective cardiac crescent fuse (stage -1). All data were collected across seven different batches.
+We have generated single-cell RNA-seq data from *unbiased* sampling of the developing heart in mouse embryos. The sampling covers the earliest stages of heart development, when the cardiac crescent becomes evident, up to the linear heart tube (LHT) stage. Embryos were staged depending on their cardiac crescent morphology and classified as stages 0 to 3, or LHT, as defined in Tyser et al., eLife, 2016. An additional sample was collected just before the left and right portions of the prospective cardiac crescent fuse (stage -1). All data were collected across seven different batches.
 
 Data are from SMART-seq2 protocol, sequenced in an Illumina HiSeq 2500, to generate 125bp paired-end fragments. The first batch is 40 cells, used as a pilot to ensure the protocols for library prep were working properly. Raw data from the pilot can be accessed at ArrayExpress [E-MTAB-7403](https://www.ebi.ac.uk/arrayexpress/experiments/E-MTAB-7403/) and from batches 2 to 7 at the European Nucleotide Archive under project [PRJEB14363](https://www.ebi.ac.uk/ena/data/view/PRJEB14363).
 
-Sequencing data were aligned to the mouse reference genome (`mm10` supplemented with ERCC spike-in sequences) with `GSNAP` and the fragments aligned to each gene annotated in `Ensembl v87` were quantified with `HTSeq`. The counts for each cell were compiled into a single count matrix that is provided as `Supplementary Data 1` with the paper. Download from [here](add link). This file is read into R and saved as an `Rds` file for quicker access (`heartData_unbiased.RAW.Rds`). 
+Sequencing data were aligned to the mouse reference genome (`mm10` supplemented with ERCC spike-in sequences) with `GSNAP` and the fragments aligned to each gene annotated in `Ensembl v87` were quantified with `HTSeq`. The counts for each cell were compiled into a single count matrix that is provided as [Data S1](https://science.sciencemag.org/highwire/filestream/755147/field_highwire_adjunct_files/0/abb2986_DataS1.csv) with the paper. We also provide the count matrix as an `R` object ready for loading; download from [here](https://content.cruk.cam.ac.uk/jmlab/mouseEmbryonicHeartAtlas/heartData_unbiased.RAW.Rds).
 
-Sample metadata is provided as `Supplementary Table 5` with the paper. Download from [here](add_link).
+Sample metadata is provided as `Data S3` with the paper. Download from [here](https://science.sciencemag.org/highwire/filestream/755147/field_highwire_adjunct_files/2/abb2986_DataS3.csv) and save into the `data` folder.
 
 Gene information is available in the `data` folder.
 
@@ -38,7 +38,8 @@ First, we load the count data, sample metadata and gene information.
 data <- readRDS(paste0(dir, "data/heartData_unbiased.RAW.Rds"))
 
 ## sample metadata
-meta <- read.table(paste0(dir, "data/SupplementaryTable5.tab"), header = TRUE, sep="\t", stringsAsFactors = FALSE)
+meta <- read.csv(paste0(dir, "data/DataS3.csv"), 
+                 header = TRUE, stringsAsFactors = FALSE)
 stopifnot(identical(colnames(data), meta$cell))
 meta$batch <- as.factor(paste0("batch_", meta$batch)) ## make 'batch' categorical
 
@@ -85,16 +86,52 @@ qc <- data.frame(libSize=colSums(data),
 ## plot
 plots <- list()
 ## total counts in genes + spike-ins
-plots[[1]] <- ggplot(qc, aes(x=as.factor(meta$batch), y=log10(libSize+1))) + geom_violin() + geom_boxplot(width=0.05) + theme_classic() + theme(legend.position="none") + ylab(expression('log'[10]*' library size')) + xlab("batch") + geom_hline(yintercept = log10(50000), lwd=0.25, lty=2, col="grey") + ggtitle("total reads in genes") + theme(plot.title = element_text(face="bold", hjust=0.5))
+plots[[1]] <- ggplot(qc, aes(x=as.factor(meta$batch), y=log10(libSize+1))) + 
+  geom_violin() + 
+  geom_boxplot(width=0.05) + 
+  geom_hline(yintercept = log10(50000), lwd=0.25, lty=2, col="grey") + 
+  ggtitle("total reads in genes") + 
+  xlab("batch") + 
+  ylab(expression('log'[10]*' library size')) + 
+  theme_classic() + 
+  theme(plot.title = element_text(face="bold", hjust=0.5),
+        legend.position="none")
 
 ## genes detected
-plots[[2]] <- ggplot(qc, aes(x=as.factor(meta$batch), y=nGenes)) + geom_violin() + geom_boxplot(width=0.05) + theme_classic() + theme(legend.position="none") + ylab("total genes") + xlab("batch") + geom_hline(yintercept = 6000, lwd=0.25, lty=2, col="grey") + ggtitle("number of genes detected") + theme(plot.title = element_text(face="bold", hjust=0.5))
+plots[[2]] <- ggplot(qc, aes(x=as.factor(meta$batch), y=nGenes)) + 
+  geom_violin() + 
+  geom_boxplot(width=0.05) + 
+  geom_hline(yintercept = 6000, lwd=0.25, lty=2, col="grey") + 
+  ggtitle("number of genes detected") + 
+  xlab("batch") + 
+  ylab("total genes") + 
+  theme_classic() + 
+  theme(plot.title = element_text(face="bold", hjust=0.5),
+        legend.position="none")
 
 ## mitochondrial %
-plots[[3]] <- ggplot(qc, aes(x=as.factor(meta$batch), y=mit/libSize*100)) + geom_violin() + geom_boxplot(width=0.05) + theme_classic() + theme(legend.position="none") + ylab("% reads in MT genes") + xlab("batch") + geom_hline(yintercept = 15, lwd=0.25, lty=2, col="grey") + ggtitle("% reads in mitochondrial genes") + theme(plot.title = element_text(face="bold", hjust=0.5))
+plots[[3]] <- ggplot(qc, aes(x=as.factor(meta$batch), y=mit/libSize*100)) + 
+  geom_violin() + 
+  geom_boxplot(width=0.05) + 
+  geom_hline(yintercept = 15, lwd=0.25, lty=2, col="grey") + 
+  ggtitle("% reads in mitochondrial genes") + 
+  xlab("batch") + 
+  ylab("% reads in MT genes") + 
+  theme_classic() + 
+  theme(plot.title = element_text(face="bold", hjust=0.5),
+        legend.position="none")
 
 ## spike-ins %
-plots[[4]] <- ggplot(qc, aes(x=as.factor(meta$batch), y=ercc/libSize*100)) + geom_violin(scale="width") + geom_boxplot(width=0.05) + theme_classic() + theme(legend.position="none") + ylab("% reads in spike-ins") + xlab("batch") + geom_hline(yintercept = 30, lwd=0.25, lty=2, col="grey") + ggtitle("% reads in ERCC spike-ins") + theme(plot.title = element_text(face="bold", hjust=0.5))
+plots[[4]] <- ggplot(qc, aes(x=as.factor(meta$batch), y=ercc/libSize*100)) + 
+  geom_violin(scale="width") + 
+  geom_boxplot(width=0.05) + 
+  geom_hline(yintercept = 30, lwd=0.25, lty=2, col="grey") + 
+  ggtitle("% reads in ERCC spike-ins") + 
+  xlab("batch") + 
+  ylab("% reads in spike-ins") + 
+  theme_classic() + 
+  theme(plot.title = element_text(face="bold", hjust=0.5),
+        legend.position="none")
 
 ggarrange(plotlist = plots, ncol = 2, nrow = 2)
 ```
@@ -116,11 +153,11 @@ badQual <- which(qc$libSize < 50e3 | qc$mit/(qc$libSize+1)*100 >= 15 | qc$ercc/(
 # length(badQual) # 1075 (25.72%)
 ```
 
-With this criteria, 1075 (25.72%) cells fail and are removed from downstream analyses.
+With this criteria, 1075 (25.72%) cells fail QC and are removed from downstream analyses.
 
 
 ```r
-## remove bad quality samples from count matris
+## remove bad quality samples from count matrix
 stopifnot(identical(row.names(qc), colnames(data)))
 data <- data[,-badQual]
 data <- data[rowSums(data)>0,] ## remove non-expressed genes
@@ -179,13 +216,16 @@ stopifnot(identical(row.names(m), colnames(data)))
 ann <- ann[genes,]
 stopifnot(identical(row.names(ann), row.names(data[genes,])))
 # need info for spikes
-tmp <- data.frame(gene=spikes, chr=paste0("ERCC",1:length(spikes)), start=1, end=2, strand=1, row.names = spikes)
+tmp <- data.frame(gene=spikes, chr=paste0("ERCC",1:length(spikes)), 
+                  start=1, end=2, strand=1, row.names = spikes)
 ann <- rbind(ann, tmp)
 stopifnot(identical(row.names(ann), row.names(data)))
 
 ## sce object
-sce <- SingleCellExperiment(assays = list(counts=as.matrix(data)), colData = m, rowData = ann[,1:2])
-## specify spike ins
+sce <- SingleCellExperiment(assays = list(counts=as.matrix(data)), 
+                            colData = m, 
+                            rowData = ann[,1:2])
+## specify spike ins and separate from main assay
 is.spike <- grepl("^ERCC-", rownames(sce))
 sce <- splitAltExps(sce, ifelse(is.spike, "ERCC", "gene"))
 
@@ -202,9 +242,11 @@ clusters  <- quickCluster(sce, min.size = 100, method = "igraph")
 sce  <- computeSumFactors(sce, cluster = clusters, min.mean = 1)
 sf <- sizeFactors(sce)
 names(sf) <- colnames(counts(sce))
-write.table(sf, file=paste0(dir, "data/sizeFactors_unbiasedDataset_minMean1.tsv"), quote = FALSE, sep = "\t")
+write.table(sf, file=paste0(dir, "data/sizeFactors_unbiasedDataset_minMean1.tsv"), 
+            quote = FALSE, sep = "\t")
 
-plot(sf, colSums(counts(sce))/1e6, pch=16, xlab="size factors", ylab="library size (millions)", bty="l")
+plot(sf, colSums(counts(sce))/1e6, pch=16, 
+     xlab="size factors", ylab="library size (millions)", bty="l")
 abline(lm((colSums(counts(sce))/1e6)~sf))
 ```
 

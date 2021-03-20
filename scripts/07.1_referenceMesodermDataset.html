@@ -280,11 +280,21 @@ div.tocify {
 <div id="single-cell-data-of-reference-mesoderm-regions" class="section level3">
 <h3>Single-cell data of reference mesoderm regions</h3>
 <p>We have manually micro-dissected and sequenced the transcriptomes of cells from four anatomically defined reference regions of mesoderm: ventral cardiac mesoderm (CaM), cranial mesoderm (CrM), dorsal mesoderm (DM) and presomitic mesoderm (PSM). These <code>reference</code> cells with known anatomical location can be used to better understand the heterogeneity observed in the cardiac mesoderm progenitor populations captured in the <code>unbiased</code> dataset.</p>
+<hr />
+<p>In the paper, we refined the annotation of these four regions to better reflect the anatomical locations dissected. Annotations in <a href="https://science.sciencemag.org/highwire/filestream/755147/field_highwire_adjunct_files/3/abb2986_DataS4.csv">DataS4</a> correspond with the paper.</p>
+<p>The mapping to the names used in this script is as follows:</p>
+<ul>
+<li>Cardiac mesoderm = ventral mesoderm</li>
+<li>Cranial mesoderm = cranial mesoderm</li>
+<li>Dorsal mesoderm = dorsal mesoderm</li>
+<li>Presomitic mesoderm = paraxial mesoderm</li>
+</ul>
+<hr />
 <pre class="r"><code>## count matrix
 data &lt;- readRDS(paste0(dir, &quot;data/mesodermData_reference.RAW.Rds&quot;))
 
 ## sample metadata
-meta &lt;- read.table(paste0(dir, &quot;data/SupplementaryTable7.tab&quot;), header = TRUE, sep=&quot;\t&quot;, stringsAsFactors = FALSE)
+meta &lt;- read.csv(paste0(dir, &quot;data/DataS4.csv&quot;), header = TRUE, stringsAsFactors = FALSE)
 meta &lt;- meta[match(colnames(data), meta$cellID),]
 stopifnot(identical(colnames(data), meta$cell))
 meta$batch &lt;- as.factor(paste0(&quot;batch_&quot;, meta$batch)) ## make 'batch' categorical

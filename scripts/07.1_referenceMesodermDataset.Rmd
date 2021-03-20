@@ -31,12 +31,25 @@ palette(brewer.pal(n=12, "Set3")[-c(1:2)])
 
 We have manually micro-dissected and sequenced the transcriptomes of cells from four anatomically defined reference regions of mesoderm: ventral cardiac mesoderm (CaM), cranial mesoderm (CrM), dorsal mesoderm (DM) and presomitic mesoderm (PSM). These `reference` cells with known anatomical location can be used to better understand the heterogeneity observed in the cardiac mesoderm progenitor populations captured in the `unbiased` dataset. 
 
+---
+
+In the paper, we refined the annotation of these four regions to better reflect the anatomical locations dissected. Annotations in [DataS4](https://science.sciencemag.org/highwire/filestream/755147/field_highwire_adjunct_files/3/abb2986_DataS4.csv) correspond with the paper. 
+
+The mapping to the names used in this script is as follows:
+
+- Cardiac mesoderm = ventral mesoderm
+- Cranial mesoderm = cranial mesoderm
+- Dorsal mesoderm = dorsal mesoderm
+- Presomitic mesoderm = paraxial mesoderm
+
+---
+
 ```{r data}
 ## count matrix
 data <- readRDS(paste0(dir, "data/mesodermData_reference.RAW.Rds"))
 
 ## sample metadata
-meta <- read.table(paste0(dir, "data/SupplementaryTable7.tab"), header = TRUE, sep="\t", stringsAsFactors = FALSE)
+meta <- read.csv(paste0(dir, "data/DataS4.csv"), header = TRUE, stringsAsFactors = FALSE)
 meta <- meta[match(colnames(data), meta$cellID),]
 stopifnot(identical(colnames(data), meta$cell))
 meta$batch <- as.factor(paste0("batch_", meta$batch)) ## make 'batch' categorical
